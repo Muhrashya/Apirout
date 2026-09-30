@@ -234,6 +234,49 @@ func (r *Reader) CreateAuditLog(log *models.AuditLog) error {
 	return err
 }
 
+// GetAuthPluginsForRoute returns enabled auth plugins attached to a specific route
+func (r *Reader) GetAuthPluginsForRoute(routeID string) ([]models.AuthPluginConfig, error) {
+	var plugins []models.AuthPluginConfig
+	query := `SELECT * FROM auth_plugin_configs WHERE route_id = $1 AND enabled = TRUE ORDER BY plugin_name`
+	err := r.db.Select(&plugins, query, routeID)
+	if err != nil {
+		return nil, err
+	}
+	return plugins, nil
+}
+
+// GetAuthPluginsForService returns enabled auth plugins attached to a specific service
+func (r *Reader) GetAuthPluginsForService(serviceID string) ([]models.AuthPluginConfig, error) {
+	var plugins []models.AuthPluginConfig
+	query := `SELECT * FROM auth_plugin_configs WHERE service_id = $1 AND enabled = TRUE ORDER BY plugin_name`
+	err := r.db.Select(&plugins, query, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	return plugins, nil
+}
+
+// GetGlobalAuthPlugins returns enabled global auth plugins (not attached to any specific entity)
+func (r *Reader) GetGlobalAuthPlugins() ([]models.AuthPluginConfig, error) {
+	var plugins []models.AuthPluginConfig
+	query := `SELECT * FROM auth_plugin_configs WHERE scope = 'global' AND enabled = TRUE ORDER BY plugin_name`
+	err := r.db.Select(&plugins, query)
+	if err != nil {
+		return nil, err
+	}
+	return plugins, nil
+}
+
+// GetOutboundAuth returns the outbound auth config for a service
+func (r *Reader) GetOutboundAuth(serviceID string) (*models.ServiceOutboundAuth, error) {
+	var auth models.ServiceOutboundAuth
+	err := r.db.Get(&auth, `SELECT * FROM service_outbound_auth WHERE service_id = $1 AND enabled = TRUE`, serviceID)
+	if err != nil {
+		return nil, nil // No outbound auth configured
+	}
+	return &auth, nil
+}
+
 func getEnvInt(key string, defaultVal int) int {
 	if val := os.Getenv(key); val != "" {
 		var i int

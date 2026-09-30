@@ -349,6 +349,12 @@ type PreviewRequest struct {
 
 // Preview executes a query preview
 func (h *QueryHandler) Preview(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil {
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
 	var req PreviewRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
@@ -358,6 +364,26 @@ func (h *QueryHandler) Preview(w http.ResponseWriter, r *http.Request) {
 	if req.ConnectionID == "" || req.SQL == "" {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "connection_id and sql are required")
 		return
+	}
+
+	// Verify connection exists and user has permission to query it
+	conn, err := h.registry.GetConnectionByID(req.ConnectionID)
+	if err != nil || conn == nil {
+		httputil.WriteJSONError(w, http.StatusNotFound, "Connection not found")
+		return
+	}
+
+	if claims.Role != "SUPER_ADMIN" {
+		if conn.GroupID == nil {
+			httputil.WriteJSONError(w, http.StatusForbidden, "Global connection requires Super Admin")
+			return
+		}
+		canManage, err := h.registry.CanManageResource(claims.UserID, *conn.GroupID, registry.PermManageQueries)
+		if err != nil || !canManage {
+			h.logForbiddenAction(r, claims.UserID, "preview_query", conn.GroupID)
+			httputil.WriteJSONError(w, http.StatusForbidden, "No permission to execute queries on this connection")
+			return
+		}
 	}
 
 	results, err := h.executor.PreviewQuery(req.ConnectionID, req.SQL, req.Limit, req.Offset)

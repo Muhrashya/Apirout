@@ -25,9 +25,12 @@ const ApiLogs = lazy(() => import('./pages/observability/ApiLogs'))
 const Analytics = lazy(() => import('./pages/observability/Analytics'))
 const Profile = lazy(() => import('./pages/settings/Profile'))
 const Connections = lazy(() => import('./pages/settings/Connections'))
+const ConnectionFormPage = lazy(() => import('./pages/settings/ConnectionFormPage'))
 const ApiClients = lazy(() => import('./pages/settings/ApiClients'))
 const Users = lazy(() => import('./pages/settings/Users'))
+const UserFormPage = lazy(() => import('./pages/settings/UserFormPage'))
 const Domains = lazy(() => import('./pages/settings/Domains'))
+const DomainFormPage = lazy(() => import('./pages/settings/DomainFormPage'))
 const ActivityLogs = lazy(() => import('./pages/settings/ActivityLogs'))
 const BrandingPage = lazy(() => import('./pages/settings/Branding'))
 const ApiCollections = lazy(() => import('./pages/settings/ApiCollections'))
@@ -93,12 +96,22 @@ function App() {
                                             <Route path="/settings/console" element={<SettingsRedirect />} />
                                             <Route element={<SettingsGuard />}>
                                                 <Route path="/settings/connections" element={<Connections />} />
+                                                <Route path="/settings/connections/new" element={<ConnectionFormPage />} />
+                                                <Route path="/settings/connections/:id/edit" element={<ConnectionFormPage />} />
+
                                                 <Route path="/settings/domains" element={<Domains />} />
+                                                <Route path="/settings/domains/new" element={<DomainFormPage />} />
+                                                <Route path="/settings/domains/:id/edit" element={<DomainFormPage />} />
+
                                                 <Route path="/settings/branding" element={<BrandingPage />} />
                                                 <Route path="/settings/collections" element={<ApiCollections />} />
                                                 <Route path="/settings/api-clients" element={<ApiClients />} />
                                                 <Route path="/settings/groups" element={<Navigate to="/settings/users" replace />} />
+
                                                 <Route path="/settings/users" element={<Users />} />
+                                                <Route path="/settings/users/new" element={<UserFormPage />} />
+                                                <Route path="/settings/users/:id/edit" element={<UserFormPage />} />
+
                                                 <Route path="/settings/activity-logs" element={<ActivityLogs />} />
                                             </Route>
                                         </Route>

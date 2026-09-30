@@ -112,8 +112,8 @@ func (r *Registry) CreateConsumer(c *models.Consumer, initialPassword string, en
 	return c, nil
 }
 
-// UpdateConsumer updates consumer metadata and status
-func (r *Registry) UpdateConsumer(c *models.Consumer, endpointIDs []string) error {
+// UpdateConsumer updates consumer metadata, status, and optionally password
+func (r *Registry) UpdateConsumer(c *models.Consumer, password string, endpointIDs []string) error {
 	c.UpdatedAt = time.Now()
 
 	tx, err := r.db.Beginx()
@@ -122,16 +122,34 @@ func (r *Registry) UpdateConsumer(c *models.Consumer, endpointIDs []string) erro
 	}
 	defer tx.Rollback()
 
-	query := `
-		UPDATE api_clients SET
-			group_id = ?, custom_id = ?, info = ?, status = ?, updated_at = ?
-		WHERE id = ?
-	`
-	_, err = tx.Exec(r.db.Rebind(query),
-		c.GroupID, c.CustomID, c.Description, c.Status, c.UpdatedAt, c.ID,
-	)
-	if err != nil {
-		return err
+	if password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		query := `
+			UPDATE api_clients SET
+				group_id = ?, custom_id = ?, info = ?, status = ?, password_hash = ?, updated_at = ?
+			WHERE id = ?
+		`
+		_, err = tx.Exec(r.db.Rebind(query),
+			c.GroupID, c.CustomID, c.Description, c.Status, string(hash), c.UpdatedAt, c.ID,
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		query := `
+			UPDATE api_clients SET
+				group_id = ?, custom_id = ?, info = ?, status = ?, updated_at = ?
+			WHERE id = ?
+		`
+		_, err = tx.Exec(r.db.Rebind(query),
+			c.GroupID, c.CustomID, c.Description, c.Status, c.UpdatedAt, c.ID,
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	if endpointIDs != nil {
@@ -251,9 +269,10 @@ func (r *Registry) ListConsumerCredentials(consumerID string) ([]models.Consumer
 	return creds, nil
 }
 
-// CreateConsumerCredential generates a new API Key credential for a consumer.
+// CreateConsumerCredentialWithSecret generates or records a credential for a consumer.
+// If customSecret is empty, auto-generates a secure random ak_live_ key.
 // Returns the secret ONCE in ConsumerCredentialCreated. Plaintext is never stored.
-func (r *Registry) CreateConsumerCredential(consumerID, name, keyType string, expiresAt *time.Time) (*models.ConsumerCredentialCreated, error) {
+func (r *Registry) CreateConsumerCredentialWithSecret(consumerID, name, keyType, customSecret string, expiresAt *time.Time) (*models.ConsumerCredentialCreated, error) {
 	id := generateID()
 	now := time.Now()
 
@@ -264,18 +283,28 @@ func (r *Registry) CreateConsumerCredential(consumerID, name, keyType string, ex
 		name = "Default API Key"
 	}
 
-	// Generate key_id (public prefix, e.g. "ak_live_8f3a2b") and raw secret
-	prefix := "ak_live_" + generateRandomHex(4)
-	secretPart := generateRandomHex(24)
-	fullKey := fmt.Sprintf("%s_%s", prefix, secretPart)
+	var fullKey, prefix, masked string
+	if customSecret != "" {
+		fullKey = customSecret
+		prefix = fmt.Sprintf("%s_%s", keyType, generateRandomHex(4))
+		if len(fullKey) > 6 {
+			masked = fmt.Sprintf("%s...%s", fullKey[:3], fullKey[len(fullKey)-3:])
+		} else {
+			masked = "••••••••"
+		}
+	} else {
+		// Generate key_id (public prefix, e.g. "ak_live_8f3a2b") and raw secret
+		prefix = "ak_live_" + generateRandomHex(4)
+		secretPart := generateRandomHex(24)
+		fullKey = fmt.Sprintf("%s_%s", prefix, secretPart)
+		masked = fmt.Sprintf("%s_...%s", prefix, fullKey[len(fullKey)-4:])
+	}
 
 	// Hash the full key with bcrypt
 	hash, err := bcrypt.GenerateFromPassword([]byte(fullKey), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
 	}
-
-	masked := fmt.Sprintf("%s_...%s", prefix, fullKey[len(fullKey)-4:])
 
 	cred := models.ConsumerCredential{
 		ID:         id,
@@ -307,6 +336,11 @@ func (r *Registry) CreateConsumerCredential(consumerID, name, keyType string, ex
 		ConsumerCredential: cred,
 		KeySecret:          fullKey,
 	}, nil
+}
+
+// CreateConsumerCredential generates a new API Key credential for a consumer.
+func (r *Registry) CreateConsumerCredential(consumerID, name, keyType string, expiresAt *time.Time) (*models.ConsumerCredentialCreated, error) {
+	return r.CreateConsumerCredentialWithSecret(consumerID, name, keyType, "", expiresAt)
 }
 
 // ToggleConsumerCredential enables or disables a credential

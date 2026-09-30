@@ -58,6 +58,10 @@ func GetConnector(dbType string) (Connector, error) {
 		return NewMySQLConnector(), nil
 	case "mssql", "sqlserver":
 		return NewMSSQLConnector(), nil
+	case "mongodb", "mongo":
+		return NewMongoDBConnector(), nil
+	case "redis":
+		return NewRedisConnector(), nil
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", dbType)
 	}
@@ -75,6 +79,12 @@ func BuildConnectionString(dbType, host string, port int, dbname, username, pass
 	case "mssql", "sqlserver":
 		conn := NewMSSQLConnector()
 		return conn.BuildConnectionString(host, port, dbname, username, password), nil
+	case "mongodb", "mongo":
+		conn := NewMongoDBConnector()
+		return conn.BuildConnectionString(host, port, dbname, username, password, "admin"), nil
+	case "redis":
+		conn := NewRedisConnector()
+		return conn.BuildConnectionString(host, port, dbname, username, password, sslmode == "require" || sslmode == "true"), nil
 	default:
 		return "", fmt.Errorf("unsupported database type: %s", dbType)
 	}

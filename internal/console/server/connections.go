@@ -147,16 +147,50 @@ func (h *ConnectionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" || req.DBType == "" || req.Host == "" || req.DBName == "" || req.Username == "" {
+	if req.DBType == "redis" {
+		if req.Name == "" || req.Host == "" {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Connection name and host are required for Redis")
+			return
+		}
+		if req.DBName == "" {
+			req.DBName = "0"
+		}
+		if req.Username == "" {
+			req.Username = "default"
+		}
+	} else if req.DBType == "sqlite" {
+		if req.Name == "" || req.Host == "" {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Connection name and SQLite file path are required")
+			return
+		}
+		if req.DBName == "" {
+			req.DBName = "sqlite"
+		}
+	} else if req.DBType == "mongodb" || req.DBType == "mongo" {
+		if req.Name == "" || req.Host == "" {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Connection name and MongoDB host or URI are required")
+			return
+		}
+		if req.DBName == "" {
+			req.DBName = "admin"
+		}
+	} else if req.Name == "" || req.DBType == "" || req.Host == "" || req.DBName == "" || req.Username == "" {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "Name, db_type, host, dbname, and username are required")
 		return
 	}
 
 	if req.Port == 0 {
-		if req.DBType == "postgres" || req.DBType == "postgresql" {
+		switch req.DBType {
+		case "postgres", "postgresql":
 			req.Port = 5432
-		} else if req.DBType == "mysql" {
+		case "mysql":
 			req.Port = 3306
+		case "mssql", "sqlserver":
+			req.Port = 1433
+		case "mongodb", "mongo":
+			req.Port = 27017
+		case "redis":
+			req.Port = 6379
 		}
 	}
 
@@ -362,11 +396,30 @@ func (h *ConnectionHandler) TestRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.DBType == "redis" {
+		if req.DBName == "" {
+			req.DBName = "0"
+		}
+	} else if req.DBType == "sqlite" {
+		if req.DBName == "" {
+			req.DBName = "sqlite"
+		}
+	} else if (req.DBType == "mongodb" || req.DBType == "mongo") && req.DBName == "" {
+		req.DBName = "admin"
+	}
+
 	if req.Port == 0 {
-		if req.DBType == "postgres" || req.DBType == "postgresql" {
+		switch req.DBType {
+		case "postgres", "postgresql":
 			req.Port = 5432
-		} else if req.DBType == "mysql" {
+		case "mysql":
 			req.Port = 3306
+		case "mssql", "sqlserver":
+			req.Port = 1433
+		case "mongodb", "mongo":
+			req.Port = 27017
+		case "redis":
+			req.Port = 6379
 		}
 	}
 

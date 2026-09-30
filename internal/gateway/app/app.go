@@ -13,6 +13,7 @@ import (
 	"github.com/rs/cors"
 	"github.com/apirout/apirout/internal/config"
 	"github.com/apirout/apirout/internal/gateway/apiclientauth"
+	"github.com/apirout/apirout/internal/gateway/auth"
 	"github.com/apirout/apirout/internal/gateway/cache"
 	"github.com/apirout/apirout/internal/gateway/executor"
 	"github.com/apirout/apirout/internal/core/httputil"
@@ -70,7 +71,9 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	app.closers = append(app.closers, loginLimiter.Stop)
 
 	apiClientHandler := apiclientauth.NewHandler(apiClientAuthService)
-	executorHandler := executor.NewHandler(executorService, reader, apiClientAuthService)
+	authEngine := auth.NewEngine(reader, cfg.JWTSecret)
+	outboundInjector := auth.NewOutboundInjector(cfg.EncryptionKey)
+	executorHandler := executor.NewHandler(executorService, reader, apiClientAuthService, authEngine, outboundInjector)
 	instantHandler := executor.NewInstantCRUDHandler(reader, cfg.EncryptionKey, connPool, apiClientAuthService, cfg.AdminSecret, cfg.JWTSecret)
 
 	// Public Consumer Gateway Router (Port 8000)

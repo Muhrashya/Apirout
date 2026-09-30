@@ -55,7 +55,9 @@ export default function ConsumersPage() {
     const [newKeyForm, setNewKeyForm] = useState({
         name: 'New API Key',
         key_type: 'api-key',
+        secret: '',
     });
+    const [showCredSecret, setShowCredSecret] = useState(false);
 
     // One-Time Key Reveal Modal
     const [revealedKeySecret, setRevealedKeySecret] = useState<{
@@ -215,6 +217,7 @@ export default function ConsumersPage() {
             const res = await gatewayApi.createCredential(activeConsumerForCreds.id, {
                 name: newKeyForm.name.trim() || 'API Key',
                 key_type: newKeyForm.key_type,
+                secret: newKeyForm.secret.trim() || undefined,
             });
             setIsNewKeyModalOpen(false);
 
@@ -1001,7 +1004,7 @@ export default function ConsumersPage() {
                                 <button
                                     className="btn-header-new-route"
                                     onClick={() => {
-                                        setNewKeyForm({ name: 'API Key', key_type: 'api-key' });
+                                        setNewKeyForm({ name: 'API Key', key_type: 'api-key', secret: '' });
                                         setIsNewKeyModalOpen(true);
                                     }}
                                     style={{ fontSize: '12.5px', padding: '6px 12px' }}
@@ -1159,15 +1162,43 @@ export default function ConsumersPage() {
                         </div>
 
                         <div className="form-group" style={{ marginBottom: '16px' }}>
-                            <label className="label">Key Type</label>
+                            <label className="label">Credential Type</label>
                             <select
                                 className="select"
                                 value={newKeyForm.key_type}
                                 onChange={e => setNewKeyForm({ ...newKeyForm, key_type: e.target.value })}
                             >
-                                <option value="api-key">Standard API Key (X-API-Key header)</option>
-                                <option value="jwt">JWT Token Key</option>
+                                <option value="api-key">Standard API Key (Header X-API-Key or ?api_key)</option>
+                                <option value="basic-auth">Basic Auth Password (HTTP Basic Authorization)</option>
+                                <option value="jwt">JWT Token Key / Shared Secret</option>
+                                <option value="hmac-auth">HMAC-SHA256 Shared Secret</option>
+                                <option value="oauth2">OAuth 2.0 Client Secret</option>
                             </select>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '16px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                <label className="label" style={{ margin: 0 }}>
+                                    {newKeyForm.key_type === 'basic-auth' ? 'Consumer Password' : 'Custom Secret (Optional)'}
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCredSecret(!showCredSecret)}
+                                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                                >
+                                    {showCredSecret ? 'Hide' : 'Show'}
+                                </button>
+                            </div>
+                            <input
+                                type={showCredSecret ? 'text' : 'password'}
+                                className="input"
+                                value={newKeyForm.secret}
+                                onChange={e => setNewKeyForm({ ...newKeyForm, secret: e.target.value })}
+                                placeholder={newKeyForm.key_type === 'basic-auth' ? 'Enter password (or leave blank to auto-generate)' : 'Leave blank to auto-generate a secure random secret'}
+                            />
+                            <span style={{ fontSize: '11px', color: '#64748b', marginTop: '3px', display: 'block' }}>
+                                Credentials are encrypted with bcrypt at rest. The plain secret is shown only once after creation.
+                            </span>
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>

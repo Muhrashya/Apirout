@@ -124,7 +124,7 @@ func (h *ConsumersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c := existing.ToConsumer()
-	if err := h.registry.UpdateConsumer(c, req.EndpointIDs); err != nil {
+	if err := h.registry.UpdateConsumer(c, req.Password, req.EndpointIDs); err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to update consumer: "+err.Error())
 		return
 	}
@@ -161,6 +161,7 @@ func (h *ConsumersHandler) ListCredentials(w http.ResponseWriter, r *http.Reques
 type CreateCredentialRequest struct {
 	Name      string     `json:"name"`
 	KeyType   string     `json:"key_type"`
+	Secret    string     `json:"secret"`
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 
@@ -180,7 +181,7 @@ func (h *ConsumersHandler) CreateCredential(w http.ResponseWriter, r *http.Reque
 		req.KeyType = "api-key"
 	}
 
-	created, err := h.registry.CreateConsumerCredential(consumerID, req.Name, req.KeyType, req.ExpiresAt)
+	created, err := h.registry.CreateConsumerCredentialWithSecret(consumerID, req.Name, req.KeyType, req.Secret, req.ExpiresAt)
 	if err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create credential: "+err.Error())
 		return
@@ -247,7 +248,7 @@ func (h *ConsumersHandler) UpdateRoutes(w http.ResponseWriter, r *http.Request) 
 	}
 
 	c := consumer.ToConsumer()
-	if err := h.registry.UpdateConsumer(c, req.RouteIDs); err != nil {
+	if err := h.registry.UpdateConsumer(c, "", req.RouteIDs); err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to update routes: "+err.Error())
 		return
 	}

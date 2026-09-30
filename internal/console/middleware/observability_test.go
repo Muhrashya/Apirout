@@ -57,12 +57,12 @@ func TestRecovererReturnsJSON500(t *testing.T) {
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rr.Code)
 	}
-	var body map[string]string
+	var body map[string]interface{}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid JSON body %q: %v", rr.Body.String(), err)
 	}
 	if body["error"] != "Internal server error" {
-		t.Errorf("error = %q", body["error"])
+		t.Errorf("error = %v", body["error"])
 	}
 	if !strings.Contains(buf.String(), "panic recovered") {
 		t.Errorf("panic was not logged: %s", buf.String())

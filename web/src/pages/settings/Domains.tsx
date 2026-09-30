@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../api/apiClient';
 import { useToast } from '../../components/Toast';
-import { Modal } from '../../components/Modal';
 import {
     IconGlobe,
     IconShield,
@@ -25,22 +25,12 @@ interface GatewayDomain {
 }
 
 export default function Domains() {
+    const navigate = useNavigate();
     const [domains, setDomains] = useState<GatewayDomain[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [envFilter, setEnvFilter] = useState('ALL');
     const [copiedDomain, setCopiedDomain] = useState<string | null>(null);
-
-    const [form, setForm] = useState({
-        domain_name: '',
-        display_name: '',
-        environment: 'production',
-        is_default: false,
-        default_allowed_ips: '*',
-        description: '',
-    });
 
     const toast = useToast();
 
@@ -60,34 +50,6 @@ export default function Domains() {
     useEffect(() => {
         fetchDomains();
     }, []);
-
-    const handleCreate = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!form.domain_name.trim()) {
-            toast.error('Domain name is required');
-            return;
-        }
-
-        try {
-            setIsSubmitting(true);
-            await apiClient.post('/domains', form);
-            toast.success('Gateway domain registered successfully');
-            setIsModalOpen(false);
-            setForm({
-                domain_name: '',
-                display_name: '',
-                environment: 'production',
-                is_default: false,
-                default_allowed_ips: '*',
-                description: '',
-            });
-            fetchDomains();
-        } catch (err: any) {
-            toast.error(err.message || 'Failed to create domain');
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
 
     const handleDelete = async (id: string, domainName: string) => {
         if (!window.confirm(`Are you sure you want to remove domain "${domainName}"? Routes bound to this domain may be affected.`)) {
@@ -166,7 +128,7 @@ export default function Domains() {
                     </button>
                     <button
                         className="btn-header-new-route"
-                        onClick={() => setIsModalOpen(true)}
+                        onClick={() => navigate('/settings/domains/new')}
                     >
                         <IconPlus width={15} height={15} />
                         <span>Register Domain</span>
@@ -431,7 +393,7 @@ export default function Domains() {
                         {domains.length === 0 && (
                             <button
                                 className="btn-header-new-route"
-                                onClick={() => setIsModalOpen(true)}
+                                onClick={() => navigate('/settings/domains/new')}
                                 style={{ margin: '0 auto' }}
                             >
                                 <IconPlus width={15} height={15} />
@@ -650,175 +612,6 @@ export default function Domains() {
                     </div>
                 )}
             </div>
-
-            {/* Register Domain Modal */}
-            <Modal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                title="Register Gateway Domain"
-                size="md"
-            >
-                <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                    <div>
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                            Domain Name / Host Header *
-                        </label>
-                        <input
-                            type="text"
-                            placeholder="e.g. api.apirout.io or gateway.internal.corp"
-                            value={form.domain_name}
-                            onChange={(e) => setForm({ ...form, domain_name: e.target.value })}
-                            required
-                            style={{
-                                width: '100%',
-                                height: '40px',
-                                padding: '0 12px',
-                                fontSize: '13.5px',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '8px',
-                                outline: 'none'
-                            }}
-                        />
-                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                            The exact HTTP Host header matched by incoming requests to the Data Plane Gateway.
-                        </div>
-                    </div>
-
-                    <div>
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                            Display Name / Label
-                        </label>
-                        <input
-                            type="text"
-                            placeholder="e.g. Public Production API Gateway"
-                            value={form.display_name}
-                            onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-                            style={{
-                                width: '100%',
-                                height: '40px',
-                                padding: '0 12px',
-                                fontSize: '13.5px',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '8px',
-                                outline: 'none'
-                            }}
-                        />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                        <div>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                Environment
-                            </label>
-                            <select
-                                value={form.environment}
-                                onChange={(e) => setForm({ ...form, environment: e.target.value })}
-                                style={{
-                                    width: '100%',
-                                    height: '40px',
-                                    padding: '0 12px',
-                                    fontSize: '13.5px',
-                                    border: '1px solid #cbd5e1',
-                                    borderRadius: '8px',
-                                    backgroundColor: '#ffffff',
-                                    outline: 'none',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                <option value="production">Production</option>
-                                <option value="staging">Staging</option>
-                                <option value="internal">Internal / VPN</option>
-                                <option value="development">Development</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                Allowed Client IPs (CIDR)
-                            </label>
-                            <input
-                                type="text"
-                                placeholder="* (All) or 10.0.0.0/8, 192.168.1.0/24"
-                                value={form.default_allowed_ips}
-                                onChange={(e) => setForm({ ...form, default_allowed_ips: e.target.value })}
-                                style={{
-                                    width: '100%',
-                                    height: '40px',
-                                    padding: '0 12px',
-                                    fontSize: '13.5px',
-                                    border: '1px solid #cbd5e1',
-                                    borderRadius: '8px',
-                                    outline: 'none'
-                                }}
-                            />
-                        </div>
-                    </div>
-
-                    <div style={{
-                        padding: '12px 14px',
-                        background: '#f8fafc',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        cursor: 'pointer'
-                    }} onClick={() => setForm(f => ({ ...f, is_default: !f.is_default }))}>
-                        <input
-                            type="checkbox"
-                            checked={form.is_default}
-                            onChange={(e) => setForm({ ...form, is_default: e.target.checked })}
-                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                        />
-                        <div>
-                            <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>
-                                Set as Default Gateway Domain
-                            </div>
-                            <div style={{ fontSize: '12px', color: '#64748b' }}>
-                                Incoming traffic without matching host headers will route to this domain.
-                            </div>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                            Description (Optional)
-                        </label>
-                        <textarea
-                            rows={3}
-                            placeholder="Operational notes or internal purpose of this gateway host..."
-                            value={form.description}
-                            onChange={(e) => setForm({ ...form, description: e.target.value })}
-                            style={{
-                                width: '100%',
-                                padding: '10px 12px',
-                                fontSize: '13.5px',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '8px',
-                                outline: 'none',
-                                resize: 'vertical'
-                            }}
-                        />
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
-                        <button
-                            type="button"
-                            className="btn-header-refresh"
-                            onClick={() => setIsModalOpen(false)}
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            className="btn-header-new-route"
-                            disabled={isSubmitting}
-                        >
-                            {isSubmitting ? 'Registering...' : 'Register Domain'}
-                        </button>
-                    </div>
-                </form>
-            </Modal>
         </div>
     );
 }

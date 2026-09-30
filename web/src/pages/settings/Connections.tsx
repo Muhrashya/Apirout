@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { gatewayApi, Connection } from '../../api/gatewayApi';
 import { useToast } from '../../components/Toast';
-import { Modal } from '../../components/Modal';
+import { DatabaseEnginePickerModal } from '../../components/DatabaseEnginePickerModal';
 import {
     IconDatabase,
     IconSearch,
@@ -23,29 +23,11 @@ export default function ConnectionsPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [typeFilter, setTypeFilter] = useState('all');
+    const [isPickerModalOpen, setIsPickerModalOpen] = useState(false);
 
     // Testing state for rows
     const [testingId, setTestingId] = useState<string | null>(null);
     const [testResults, setTestResults] = useState<Record<string, { success: boolean; latency_ms?: number; error?: string }>>({});
-
-    // Modal state
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingConn, setEditingConn] = useState<Connection | null>(null);
-    const [isSaving, setIsSaving] = useState(false);
-    const [isTestingRaw, setIsTestingRaw] = useState(false);
-    const [rawTestResult, setRawTestResult] = useState<{ success: boolean; latency_ms?: number; error?: string } | null>(null);
-
-    // Form state
-    const [form, setForm] = useState({
-        name: '',
-        db_type: 'postgres',
-        host: 'localhost',
-        port: 5432,
-        dbname: '',
-        username: '',
-        password: '',
-        sslmode: 'disable',
-    });
 
     useEffect(() => {
         loadData();
@@ -61,125 +43,6 @@ export default function ConnectionsPage() {
             toast.error(err.message || 'Failed to load database connections');
         } finally {
             setIsLoading(false);
-        }
-    };
-
-    const handleOpenCreateModal = () => {
-        setEditingConn(null);
-        setForm({
-            name: '',
-            db_type: 'postgres',
-            host: 'localhost',
-            port: 5432,
-            dbname: '',
-            username: 'postgres',
-            password: '',
-            sslmode: 'disable',
-        });
-        setRawTestResult(null);
-        setIsModalOpen(true);
-    };
-
-    const handleOpenEditModal = (conn: Connection) => {
-        setEditingConn(conn);
-        setForm({
-            name: conn.name,
-            db_type: conn.db_type,
-            host: conn.host,
-            port: conn.port,
-            dbname: conn.db_name,
-            username: conn.username,
-            password: '',
-            sslmode: conn.ssl_mode || 'disable',
-        });
-        setRawTestResult(null);
-        setIsModalOpen(true);
-    };
-
-    const handleTypeChange = (newType: string) => {
-        let newPort = form.port;
-        if (newType === 'postgres' || newType === 'postgresql') {
-            newPort = 5432;
-        } else if (newType === 'mysql') {
-            newPort = 3306;
-        } else if (newType === 'mssql') {
-            newPort = 1433;
-        }
-        setForm(prev => ({ ...prev, db_type: newType, port: newPort }));
-    };
-
-    const handleTestRaw = async () => {
-        if (!form.host || !form.dbname || !form.username) {
-            toast.error('Please enter host, database name, and username before testing.');
-            return;
-        }
-        setIsTestingRaw(true);
-        setRawTestResult(null);
-        try {
-            const res = await gatewayApi.testRawConnection({
-                db_type: form.db_type,
-                host: form.host,
-                port: Number(form.port),
-                dbname: form.dbname,
-                username: form.username,
-                password: form.password,
-                sslmode: form.sslmode,
-            });
-            setRawTestResult(res);
-            if (res.success) {
-                toast.success(`Connection established (${res.latency_ms ?? 0}ms)`);
-            } else {
-                toast.error(res.error || 'Connection failed');
-            }
-        } catch (err: any) {
-            setRawTestResult({ success: false, error: err.message || 'Connection test failed' });
-            toast.error(err.message || 'Connection test failed');
-        } finally {
-            setIsTestingRaw(false);
-        }
-    };
-
-    const handleSaveConnection = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!form.name.trim() || !form.host.trim() || !form.dbname.trim() || !form.username.trim()) {
-            toast.error('Name, host, database name, and username are required.');
-            return;
-        }
-
-        if (!editingConn && !form.password) {
-            toast.error('Password is required for new connection.');
-            return;
-        }
-
-        setIsSaving(true);
-        try {
-            const payload: any = {
-                name: form.name.trim(),
-                db_type: form.db_type,
-                host: form.host.trim(),
-                port: Number(form.port),
-                dbname: form.dbname.trim(),
-                username: form.username.trim(),
-                sslmode: form.sslmode,
-            };
-            if (form.password) {
-                payload.password = form.password;
-            }
-
-            if (editingConn) {
-                await gatewayApi.updateConnection(editingConn.id, payload);
-                toast.success(`Connection "${form.name}" updated successfully`);
-            } else {
-                await gatewayApi.createConnection(payload);
-                toast.success(`Connection "${form.name}" registered successfully`);
-            }
-
-            setIsModalOpen(false);
-            loadData();
-        } catch (err: any) {
-            toast.error(err.message || 'Failed to save connection');
-        } finally {
-            setIsSaving(false);
         }
     };
 
@@ -240,6 +103,15 @@ export default function ConnectionsPage() {
         if (t === 'mssql' || t === 'sqlserver') {
             return { label: 'SQL Server', bg: '#faf5ff', color: '#9333ea', border: '#e9d5ff' };
         }
+        if (t === 'mongodb' || t === 'mongo') {
+            return { label: 'MongoDB', bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' };
+        }
+        if (t === 'sqlite') {
+            return { label: 'SQLite', bg: '#f1f5f9', color: '#0f80c1', border: '#bae6fd' };
+        }
+        if (t === 'redis') {
+            return { label: 'Redis', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' };
+        }
         return { label: dbType, bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' };
     };
 
@@ -266,7 +138,7 @@ export default function ConnectionsPage() {
                         <IconRefresh width={14} height={14} />
                         <span>Refresh</span>
                     </button>
-                    <button className="btn-header-new-route" onClick={handleOpenCreateModal}>
+                    <button className="btn-header-new-route" onClick={() => setIsPickerModalOpen(true)}>
                         <IconPlus width={15} height={15} />
                         <span>New Connection</span>
                     </button>
@@ -329,6 +201,7 @@ export default function ConnectionsPage() {
                             <option value="all">All Types</option>
                             <option value="postgres">PostgreSQL</option>
                             <option value="mysql">MySQL</option>
+                            <option value="mongodb">MongoDB</option>
                             <option value="mssql">SQL Server</option>
                         </select>
                     </div>
@@ -378,7 +251,7 @@ export default function ConnectionsPage() {
                         {(!searchTerm && typeFilter === 'all') && (
                             <button
                                 className="btn-header-new-route"
-                                onClick={handleOpenCreateModal}
+                                onClick={() => setIsPickerModalOpen(true)}
                             >
                                 <IconPlus width={15} height={15} />
                                 <span>Add Database Connection</span>
@@ -575,7 +448,7 @@ export default function ConnectionsPage() {
 
                                                     {/* Edit Button */}
                                                     <button
-                                                        onClick={() => handleOpenEditModal(conn)}
+                                                        onClick={() => navigate(`/settings/connections/${conn.id}/edit`)}
                                                         title="Edit Connection Profile"
                                                         style={{
                                                             border: '1px solid #e2e8f0',
@@ -605,7 +478,7 @@ export default function ConnectionsPage() {
                                                         <IconTrash width={14} height={14} />
                                                     </button>
                                                 </div>
-                                            </td>
+                                             </td>
                                         </tr>
                                     );
                                 })}
@@ -615,257 +488,15 @@ export default function ConnectionsPage() {
                 )}
             </div>
 
-            {/* CREATE / EDIT CONNECTION MODAL */}
-            {/* ========================================================= */}
-            {isModalOpen && (
-                <Modal
-                    isOpen={isModalOpen}
-                    onClose={() => setIsModalOpen(false)}
-                    title={editingConn ? `Edit Connection: ${editingConn.name}` : 'New Database Source'}
-                >
-                    <form onSubmit={handleSaveConnection} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {/* Connection Name */}
-                        <div>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                Connection Name *
-                            </label>
-                            <input
-                                type="text"
-                                placeholder="e.g. Core Postgres DB, Main Warehouse"
-                                value={form.name}
-                                onChange={e => setForm({ ...form, name: e.target.value })}
-                                required
-                                style={{
-                                    width: '100%',
-                                    padding: '8px 12px',
-                                    fontSize: '13.5px',
-                                    border: '1px solid #cbd5e1',
-                                    borderRadius: '6px',
-                                    outline: 'none',
-                                    boxSizing: 'border-box'
-                                }}
-                            />
-                        </div>
-
-                        {/* Database Type */}
-                        <div>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                Database Engine *
-                            </label>
-                            <select
-                                className="select"
-                                value={form.db_type}
-                                onChange={e => handleTypeChange(e.target.value)}
-                            >
-                                <option value="postgres">PostgreSQL</option>
-                                <option value="mysql">MySQL</option>
-                                <option value="mssql">Microsoft SQL Server</option>
-                            </select>
-                        </div>
-
-                        {/* Host and Port */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '12px' }}>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                    Host / IP *
-                                </label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. postgres, 127.0.0.1, db.internal"
-                                    value={form.host}
-                                    onChange={e => setForm({ ...form, host: e.target.value })}
-                                    required
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        fontSize: '13.5px',
-                                        border: '1px solid #cbd5e1',
-                                        borderRadius: '6px',
-                                        outline: 'none',
-                                        boxSizing: 'border-box'
-                                    }}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                    Port *
-                                </label>
-                                <input
-                                    type="number"
-                                    placeholder="5432"
-                                    value={form.port}
-                                    onChange={e => setForm({ ...form, port: parseInt(e.target.value, 10) || 0 })}
-                                    required
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        fontSize: '13.5px',
-                                        border: '1px solid #cbd5e1',
-                                        borderRadius: '6px',
-                                        outline: 'none',
-                                        boxSizing: 'border-box'
-                                    }}
-                                />
-                            </div>
-                        </div>
-
-                        {/* Database Name */}
-                        <div>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                Database Name *
-                            </label>
-                            <input
-                                type="text"
-                                placeholder="e.g. main_db, production"
-                                value={form.dbname}
-                                onChange={e => setForm({ ...form, dbname: e.target.value })}
-                                required
-                                style={{
-                                    width: '100%',
-                                    padding: '8px 12px',
-                                    fontSize: '13.5px',
-                                    border: '1px solid #cbd5e1',
-                                    borderRadius: '6px',
-                                    outline: 'none',
-                                    boxSizing: 'border-box'
-                                }}
-                            />
-                        </div>
-
-                        {/* Username & Password */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                    Username *
-                                </label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. postgres, root"
-                                    value={form.username}
-                                    onChange={e => setForm({ ...form, username: e.target.value })}
-                                    required
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        fontSize: '13.5px',
-                                        border: '1px solid #cbd5e1',
-                                        borderRadius: '6px',
-                                        outline: 'none',
-                                        boxSizing: 'border-box'
-                                    }}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                    {editingConn ? 'Password (leave blank to keep)' : 'Password *'}
-                                </label>
-                                <input
-                                    type="password"
-                                    placeholder="••••••••"
-                                    value={form.password}
-                                    onChange={e => setForm({ ...form, password: e.target.value })}
-                                    required={!editingConn}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        fontSize: '13.5px',
-                                        border: '1px solid #cbd5e1',
-                                        borderRadius: '6px',
-                                        outline: 'none',
-                                        boxSizing: 'border-box'
-                                    }}
-                                />
-                            </div>
-                        </div>
-
-                        {/* SSL Mode */}
-                        <div>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                SSL Mode
-                            </label>
-                            <select
-                                className="select"
-                                value={form.sslmode}
-                                onChange={e => setForm({ ...form, sslmode: e.target.value })}
-                            >
-                                <option value="disable">disable (unencrypted / local)</option>
-                                <option value="require">require (SSL enabled)</option>
-                                <option value="verify-ca">verify-ca</option>
-                                <option value="verify-full">verify-full</option>
-                            </select>
-                        </div>
-
-                        {/* Live Raw Test Feedback */}
-                        {rawTestResult && (
-                            <div style={{
-                                padding: '10px 14px',
-                                borderRadius: '6px',
-                                fontSize: '13px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                backgroundColor: rawTestResult.success ? '#f0fdf4' : '#fef2f2',
-                                border: `1px solid ${rawTestResult.success ? '#bbf7d0' : '#fecaca'}`,
-                                color: rawTestResult.success ? '#16a34a' : '#dc2626'
-                            }}>
-                                {rawTestResult.success ? (
-                                    <>
-                                        <IconCheck width={16} height={16} />
-                                        <span>Connection test passed! Latency: {rawTestResult.latency_ms ?? 0}ms</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <IconAlertTriangle width={16} height={16} />
-                                        <span>Connection failed: {rawTestResult.error}</span>
-                                    </>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Actions */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
-                            <button
-                                type="button"
-                                onClick={handleTestRaw}
-                                disabled={isTestingRaw}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '8px 14px',
-                                    fontSize: '13px',
-                                    fontWeight: 500,
-                                    color: '#334155',
-                                    backgroundColor: '#f1f5f9',
-                                    border: '1px solid #cbd5e1',
-                                    borderRadius: '6px',
-                                    cursor: isTestingRaw ? 'wait' : 'pointer'
-                                }}
-                            >
-                                <IconRefresh width={14} height={14} />
-                                <span>{isTestingRaw ? 'Testing...' : 'Test Connection'}</span>
-                            </button>
-
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <button
-                                    type="button"
-                                    className="btn-header-refresh"
-                                    onClick={() => setIsModalOpen(false)}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={isSaving}
-                                    className="btn-header-new-route"
-                                >
-                                    {isSaving ? 'Saving...' : editingConn ? 'Update Connection' : 'Save Connection'}
-                                </button>
-                            </div>
-                        </div>
-                    </form>
-                </Modal>
-            )}
+            {/* DBeaver-Style Database Engine Selector Modal */}
+            <DatabaseEnginePickerModal
+                isOpen={isPickerModalOpen}
+                onClose={() => setIsPickerModalOpen(false)}
+                onSelect={(engineId) => {
+                    setIsPickerModalOpen(false);
+                    navigate(`/settings/connections/new?engine=${engineId}`);
+                }}
+            />
         </div>
     );
 }

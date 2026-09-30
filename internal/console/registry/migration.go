@@ -471,6 +471,64 @@ func (r *Registry) MigrateSchema() error {
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	)`)
 
+	// 20. Auth Plugin Configs table (Kong-style inbound auth plugins)
+	authPluginTable := `CREATE TABLE IF NOT EXISTS auth_plugin_configs (
+		id VARCHAR(255) PRIMARY KEY,
+		plugin_name VARCHAR(50) NOT NULL,
+		scope VARCHAR(20) NOT NULL DEFAULT 'route',
+		service_id VARCHAR(255) REFERENCES services(id) ON DELETE CASCADE,
+		route_id VARCHAR(255) REFERENCES endpoints(id) ON DELETE CASCADE,
+		consumer_id VARCHAR(255) REFERENCES api_clients(id) ON DELETE CASCADE,
+		config JSONB NOT NULL DEFAULT '{}',
+		enabled BOOLEAN DEFAULT TRUE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		CONSTRAINT unique_plugin_scope UNIQUE (plugin_name, scope, service_id, route_id, consumer_id)
+	)`
+	if r.dbType == "sqlite" {
+		authPluginTable = `CREATE TABLE IF NOT EXISTS auth_plugin_configs (
+			id TEXT PRIMARY KEY,
+			plugin_name TEXT NOT NULL,
+			scope TEXT NOT NULL DEFAULT 'route',
+			service_id TEXT REFERENCES services(id) ON DELETE CASCADE,
+			route_id TEXT REFERENCES endpoints(id) ON DELETE CASCADE,
+			consumer_id TEXT REFERENCES api_clients(id) ON DELETE CASCADE,
+			config TEXT NOT NULL DEFAULT '{}',
+			enabled INTEGER DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`
+	}
+	if _, err := r.db.Exec(authPluginTable); err != nil {
+		fmt.Printf("Warning creating auth_plugin_configs table: %v\n", err)
+	}
+
+	// 21. Service Outbound Auth table (credential injection to upstream backends)
+	outboundAuthTable := `CREATE TABLE IF NOT EXISTS service_outbound_auth (
+		id VARCHAR(255) PRIMARY KEY,
+		service_id VARCHAR(255) NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+		auth_type VARCHAR(50) NOT NULL,
+		config JSONB NOT NULL DEFAULT '{}',
+		enabled BOOLEAN DEFAULT TRUE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		CONSTRAINT unique_service_outbound UNIQUE (service_id)
+	)`
+	if r.dbType == "sqlite" {
+		outboundAuthTable = `CREATE TABLE IF NOT EXISTS service_outbound_auth (
+			id TEXT PRIMARY KEY,
+			service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+			auth_type TEXT NOT NULL,
+			config TEXT NOT NULL DEFAULT '{}',
+			enabled INTEGER DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`
+	}
+	if _, err := r.db.Exec(outboundAuthTable); err != nil {
+		fmt.Printf("Warning creating service_outbound_auth table: %v\n", err)
+	}
+
 	return nil
 }
 

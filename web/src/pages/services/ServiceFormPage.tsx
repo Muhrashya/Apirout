@@ -5,6 +5,7 @@ import { useToast } from '../../components/Toast';
 import {
     IconServer, IconLayers, IconDatabase, IconArrowLeft
 } from '../../components/Icons';
+import { AuthPluginManager } from '../../components/AuthPluginManager';
 
 export default function ServiceFormPage() {
     const { id } = useParams<{ id: string }>();
@@ -33,6 +34,17 @@ export default function ServiceFormPage() {
         upstream_id: '',
         connection_id: ''
     });
+
+    const [outboundAuth, setOutboundAuth] = useState<{
+        enabled: boolean;
+        auth_type: string;
+        config: Record<string, any>;
+    }>({
+        enabled: false,
+        auth_type: '',
+        config: {}
+    });
+    const [showOutboundSecret, setShowOutboundSecret] = useState(false);
 
     useEffect(() => {
         loadPrerequisites();
@@ -75,6 +87,25 @@ export default function ServiceFormPage() {
                         upstream_id: s.upstream_id || '',
                         connection_id: s.connection_id || ''
                     });
+
+                    // Load Outbound Auth config
+                    try {
+                        const outRes = await gatewayApi.getOutboundAuth(id);
+                        const outData = (outRes as any)?.data || outRes;
+                        if (outData && outData.auth_type) {
+                            let parsedCfg = {};
+                            try {
+                                parsedCfg = typeof outData.config === 'string' ? JSON.parse(outData.config) : outData.config;
+                            } catch {}
+                            setOutboundAuth({
+                                enabled: outData.enabled ?? true,
+                                auth_type: outData.auth_type,
+                                config: parsedCfg
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Failed to load outbound auth', e);
+                    }
                 }
             }
         } catch (err: any) {
@@ -135,13 +166,27 @@ export default function ServiceFormPage() {
 
         setIsSaving(true);
         try {
+            let serviceId = id;
             if (isEdit && id) {
                 await gatewayApi.updateService(id, payload);
-                toast.success('Gateway Service updated successfully');
             } else {
-                await gatewayApi.createService(payload);
-                toast.success('Gateway Service created successfully');
+                const created: any = await gatewayApi.createService(payload);
+                serviceId = created?.data?.id || created?.id;
             }
+
+            if (serviceId) {
+                if (outboundAuth.enabled && outboundAuth.auth_type) {
+                    await gatewayApi.setOutboundAuth(serviceId, {
+                        auth_type: outboundAuth.auth_type,
+                        config: JSON.stringify(outboundAuth.config),
+                        enabled: true
+                    });
+                } else if (isEdit) {
+                    await gatewayApi.deleteOutboundAuth(serviceId).catch(() => {});
+                }
+            }
+
+            toast.success(isEdit ? 'Gateway Service updated successfully' : 'Gateway Service created successfully');
             navigate('/services');
         } catch (err: any) {
             toast.error(err.message || 'Failed to save service');
@@ -160,38 +205,40 @@ export default function ServiceFormPage() {
     }
 
     return (
-        <div style={{ maxWidth: '1080px', margin: '0', paddingBottom: '60px' }}>
-            {/* Breadcrumb Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
+        <div className="overview-page-wrapper" style={{ paddingBottom: '60px' }}>
+            {/* Breadcrumb */}
+            <div className="overview-breadcrumb">
                 <span>Gateway</span>
-                <span>/</span>
+                <span className="breadcrumb-sep">/</span>
                 <Link to="/services" style={{ color: '#2563eb', textDecoration: 'none' }}>
                     Services
                 </Link>
-                <span>/</span>
-                <span style={{ color: '#0f172a', fontWeight: 600 }}>{isEdit ? 'Edit Service' : 'New Service'}</span>
+                <span className="breadcrumb-sep">/</span>
+                <span className="breadcrumb-curr">{isEdit ? 'Edit Service' : 'New Service'}</span>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <div>
-                    <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a', margin: '0 0 6px' }}>
+            <div className="overview-header">
+                <div className="overview-title-col">
+                    <h1 className="overview-title">
                         {isEdit ? `Edit Gateway Service` : 'New Gateway Service'}
                     </h1>
-                    <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>
+                    <p className="overview-subtitle">
                         Configure logical service endpoints, upstream load-balancing pools, or database Instant API sources.
                     </p>
                 </div>
-                <Link to="/services" className="btn-header-refresh" style={{ textDecoration: 'none' }}>
-                    <IconArrowLeft width={14} height={14} />
-                    <span>Back to Services</span>
-                </Link>
+                <div className="overview-header-actions">
+                    <Link to="/services" className="btn-header-refresh" style={{ textDecoration: 'none' }}>
+                        <IconArrowLeft width={14} height={14} />
+                        <span>Back to Services</span>
+                    </Link>
+                </div>
             </div>
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
                 {/* Card 1: General Info */}
                 <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                        1. Service Information
+                        Service Information
                     </h2>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '16px' }}>
@@ -239,7 +286,7 @@ export default function ServiceFormPage() {
                 {/* Card 2: Target Architecture */}
                 <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                        2. Target Architecture &amp; Destination
+                        Target Architecture &amp; Destination
                     </h2>
 
                     <label className="label" style={{ marginBottom: '10px' }}>Select Backend Target Type *</label>
@@ -247,13 +294,13 @@ export default function ServiceFormPage() {
                         <div
                             onClick={() => setTargetMode('direct')}
                             style={{
-                                border: targetMode === 'direct' ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                                border: targetMode === 'direct' ? '2px solid #2563eb' : '2px solid #e2e8f0',
                                 background: targetMode === 'direct' ? '#eff6ff' : '#ffffff',
                                 borderRadius: '10px',
                                 padding: '16px',
                                 cursor: 'pointer',
                                 textAlign: 'center',
-                                transition: 'all 150ms ease'
+                                transition: 'border-color 150ms ease, background-color 150ms ease'
                             }}
                         >
                             <IconServer width={24} height={24} style={{ margin: '0 auto 6px', color: targetMode === 'direct' ? '#2563eb' : '#64748b' }} />
@@ -264,13 +311,13 @@ export default function ServiceFormPage() {
                         <div
                             onClick={() => setTargetMode('upstream')}
                             style={{
-                                border: targetMode === 'upstream' ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                                border: targetMode === 'upstream' ? '2px solid #2563eb' : '2px solid #e2e8f0',
                                 background: targetMode === 'upstream' ? '#eff6ff' : '#ffffff',
                                 borderRadius: '10px',
                                 padding: '16px',
                                 cursor: 'pointer',
                                 textAlign: 'center',
-                                transition: 'all 150ms ease'
+                                transition: 'border-color 150ms ease, background-color 150ms ease'
                             }}
                         >
                             <IconLayers width={24} height={24} style={{ margin: '0 auto 6px', color: targetMode === 'upstream' ? '#2563eb' : '#64748b' }} />
@@ -281,13 +328,13 @@ export default function ServiceFormPage() {
                         <div
                             onClick={() => setTargetMode('database')}
                             style={{
-                                border: targetMode === 'database' ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                                border: targetMode === 'database' ? '2px solid #2563eb' : '2px solid #e2e8f0',
                                 background: targetMode === 'database' ? '#eff6ff' : '#ffffff',
                                 borderRadius: '10px',
                                 padding: '16px',
                                 cursor: 'pointer',
                                 textAlign: 'center',
-                                transition: 'all 150ms ease'
+                                transition: 'border-color 150ms ease, background-color 150ms ease'
                             }}
                         >
                             <IconDatabase width={24} height={24} style={{ margin: '0 auto 6px', color: targetMode === 'database' ? '#2563eb' : '#64748b' }} />
@@ -413,7 +460,7 @@ export default function ServiceFormPage() {
                 {/* Card 3: Network & Timeouts */}
                 <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                        3. Network &amp; Timeout Policies
+                        Network &amp; Timeout Policies
                     </h2>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
@@ -460,6 +507,325 @@ export default function ServiceFormPage() {
                         </div>
                     </div>
                 </div>
+
+                {/* Card 4: Upstream Authentication (Outbound Credential Injection) */}
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '16px' }}>
+                        <div>
+                            <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                                Upstream Authentication (Outbound Injection)
+                            </h2>
+                            <p style={{ fontSize: '12px', color: '#64748b', margin: '2px 0 0 0' }}>
+                                Automatically inject credentials into requests proxied to your backend services. Secrets are AES-256 encrypted at rest.
+                            </p>
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: 600 }}>
+                            <input
+                                type="checkbox"
+                                checked={outboundAuth.enabled}
+                                onChange={e => setOutboundAuth(prev => ({ ...prev, enabled: e.target.checked }))}
+                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                            />
+                            Enable Outbound Auth
+                        </label>
+                    </div>
+
+                    {outboundAuth.enabled && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div>
+                                <label className="label">Authentication Scheme *</label>
+                                <select
+                                    className="select"
+                                    value={outboundAuth.auth_type}
+                                    onChange={e => setOutboundAuth(prev => ({ ...prev, auth_type: e.target.value }))}
+                                    required={outboundAuth.enabled}
+                                >
+                                    <option value="">Select Scheme...</option>
+                                    <option value="bearer">Bearer Token (Authorization: Bearer &lt;token&gt;)</option>
+                                    <option value="basic">HTTP Basic Auth (Authorization: Basic base64(user:pass))</option>
+                                    <option value="api-key">API Key (Custom Header or Query Parameter)</option>
+                                    <option value="aws-sigv4">AWS Signature V4 (SigV4 signing headers)</option>
+                                    <option value="oauth2-cc">OAuth2 Client Credentials (Token grant)</option>
+                                </select>
+                            </div>
+
+                            {/* Bearer Token Form */}
+                            {outboundAuth.auth_type === 'bearer' && (
+                                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: '14px' }}>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                                <label className="label" style={{ margin: 0 }}>Bearer Token / Secret *</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowOutboundSecret(!showOutboundSecret)}
+                                                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                                                >
+                                                    {showOutboundSecret ? 'Hide Secret' : 'Show Secret'}
+                                                </button>
+                                            </div>
+                                            <input
+                                                type={showOutboundSecret ? 'text' : 'password'}
+                                                className="input"
+                                                placeholder={outboundAuth.config.token_encrypted ? '•••••••• (Encrypted, enter new value to change)' : 'Paste backend secret token here'}
+                                                value={outboundAuth.config.token || ''}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, token: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="label">Auth Prefix</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                value={outboundAuth.config.prefix || 'Bearer'}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, prefix: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Basic Auth Form */}
+                            {outboundAuth.auth_type === 'basic' && (
+                                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                        <div>
+                                            <label className="label">Username *</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="e.g. admin or api_service"
+                                                value={outboundAuth.config.username || ''}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, username: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                                <label className="label" style={{ margin: 0 }}>Password *</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowOutboundSecret(!showOutboundSecret)}
+                                                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                                                >
+                                                    {showOutboundSecret ? 'Hide' : 'Show'}
+                                                </button>
+                                            </div>
+                                            <input
+                                                type={showOutboundSecret ? 'text' : 'password'}
+                                                className="input"
+                                                placeholder={outboundAuth.config.password_encrypted ? '•••••••• (Encrypted, enter new value to change)' : 'Backend password'}
+                                                value={outboundAuth.config.password || ''}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, password: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* API Key Form */}
+                            {outboundAuth.auth_type === 'api-key' && (
+                                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '12px' }}>
+                                        <div>
+                                            <label className="label">Header / Param Name *</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="X-API-Key or api_key"
+                                                value={outboundAuth.config.header_name || 'X-API-Key'}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, header_name: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                                <label className="label" style={{ margin: 0 }}>API Key Secret *</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowOutboundSecret(!showOutboundSecret)}
+                                                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                                                >
+                                                    {showOutboundSecret ? 'Hide' : 'Show'}
+                                                </button>
+                                            </div>
+                                            <input
+                                                type={showOutboundSecret ? 'text' : 'password'}
+                                                className="input"
+                                                placeholder={outboundAuth.config.key_encrypted ? '•••••••• (Encrypted)' : 'API key value'}
+                                                value={outboundAuth.config.key || ''}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, key: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '16px' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', cursor: 'pointer' }}>
+                                            <input
+                                                type="radio"
+                                                name="key_location"
+                                                checked={!outboundAuth.config.in_query}
+                                                onChange={() => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, in_query: false }
+                                                }))}
+                                            />
+                                            Send as HTTP Request Header
+                                        </label>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', cursor: 'pointer' }}>
+                                            <input
+                                                type="radio"
+                                                name="key_location"
+                                                checked={Boolean(outboundAuth.config.in_query)}
+                                                onChange={() => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, in_query: true, query_param: outboundAuth.config.header_name || 'api_key' }
+                                                }))}
+                                            />
+                                            Send as URL Query Parameter
+                                        </label>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* AWS SigV4 Form */}
+                            {outboundAuth.auth_type === 'aws-sigv4' && (
+                                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '12px' }}>
+                                        <div>
+                                            <label className="label">AWS Access Key ID *</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="AKIAIOSFODNN7EXAMPLE"
+                                                value={outboundAuth.config.access_key || ''}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, access_key: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                                <label className="label" style={{ margin: 0 }}>AWS Secret Access Key *</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowOutboundSecret(!showOutboundSecret)}
+                                                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                                                >
+                                                    {showOutboundSecret ? 'Hide' : 'Show'}
+                                                </button>
+                                            </div>
+                                            <input
+                                                type={showOutboundSecret ? 'text' : 'password'}
+                                                className="input"
+                                                placeholder={outboundAuth.config.secret_key_encrypted ? '•••••••• (Encrypted)' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'}
+                                                value={outboundAuth.config.secret_key || ''}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, secret_key: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                        <div>
+                                            <label className="label">AWS Region</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="us-east-1"
+                                                value={outboundAuth.config.region || 'us-east-1'}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, region: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="label">AWS Service</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="execute-api"
+                                                value={outboundAuth.config.service || 'execute-api'}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, service: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* OAuth2 Client Credentials Form */}
+                            {outboundAuth.auth_type === 'oauth2-cc' && (
+                                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                        <div>
+                                            <label className="label">Client ID *</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="e.g. gateway-client"
+                                                value={outboundAuth.config.client_id || ''}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, client_id: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                                <label className="label" style={{ margin: 0 }}>Client Secret *</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowOutboundSecret(!showOutboundSecret)}
+                                                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                                                >
+                                                    {showOutboundSecret ? 'Hide' : 'Show'}
+                                                </button>
+                                            </div>
+                                            <input
+                                                type={showOutboundSecret ? 'text' : 'password'}
+                                                className="input"
+                                                placeholder={outboundAuth.config.client_secret_encrypted ? '•••••••• (Encrypted)' : 'OAuth2 client secret'}
+                                                value={outboundAuth.config.client_secret || ''}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, client_secret: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Card 5: Inbound Auth Plugins (if editing existing service) */}
+                {isEdit && id && (
+                    <div style={{ marginBottom: '24px' }}>
+                        <AuthPluginManager scope="service" entityId={id} entityName={formData.name} />
+                    </div>
+                )}
 
                 {/* Bottom Sticky Action Bar */}
                 <div style={{

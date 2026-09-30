@@ -163,38 +163,40 @@ export default function UpstreamFormPage() {
     }
 
     return (
-        <div style={{ maxWidth: '1080px', margin: '0', paddingBottom: '60px' }}>
-            {/* Breadcrumb Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
+        <div className="overview-page-wrapper" style={{ paddingBottom: '60px' }}>
+            {/* Breadcrumb */}
+            <div className="overview-breadcrumb">
                 <span>Gateway</span>
-                <span>/</span>
+                <span className="breadcrumb-sep">/</span>
                 <Link to="/upstreams" style={{ color: '#2563eb', textDecoration: 'none' }}>
                     Upstreams
                 </Link>
-                <span>/</span>
-                <span style={{ color: '#0f172a', fontWeight: 600 }}>{isEdit ? 'Edit Upstream' : 'New Upstream'}</span>
+                <span className="breadcrumb-sep">/</span>
+                <span className="breadcrumb-curr">{isEdit ? 'Edit Upstream' : 'New Upstream'}</span>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <div>
-                    <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a', margin: '0 0 6px' }}>
+            <div className="overview-header">
+                <div className="overview-title-col">
+                    <h1 className="overview-title">
                         {isEdit ? 'Edit Upstream Pool' : 'New Upstream Pool'}
                     </h1>
-                    <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>
+                    <p className="overview-subtitle">
                         Configure dynamic backend target pools, load-balancing algorithms, and active health checks.
                     </p>
                 </div>
-                <Link to="/upstreams" className="btn-header-refresh" style={{ textDecoration: 'none' }}>
-                    <IconArrowLeft width={14} height={14} />
-                    <span>Back to Upstreams</span>
-                </Link>
+                <div className="overview-header-actions">
+                    <Link to="/upstreams" className="btn-header-refresh" style={{ textDecoration: 'none' }}>
+                        <IconArrowLeft width={14} height={14} />
+                        <span>Back to Upstreams</span>
+                    </Link>
+                </div>
             </div>
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
                 {/* Card 1: Algorithm & Pool Settings */}
                 <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                        1. Pool Configuration &amp; Algorithm
+                        Pool Configuration &amp; Algorithm
                     </h2>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
@@ -258,7 +260,7 @@ export default function UpstreamFormPage() {
                 {/* Card 2: Active Health Checks */}
                 <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                        2. Active Health Checks (Passive &amp; Active Probes)
+                        Active Health Checks (Passive &amp; Active Probes)
                     </h2>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
@@ -321,7 +323,7 @@ export default function UpstreamFormPage() {
                 {/* Card 3: Inline Target Instances */}
                 <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                        3. Target Instances (Endpoints in Pool)
+                        Target Instances (Endpoints in Pool)
                     </h2>
 
                     {/* Add target form */}

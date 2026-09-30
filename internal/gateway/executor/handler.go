@@ -12,11 +12,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/core/iputil"
 	"github.com/apirout/apirout/internal/core/models"
 	"github.com/apirout/apirout/internal/gateway/apiclientauth"
-	"github.com/apirout/apirout/internal/core/httputil"
+	"github.com/apirout/apirout/internal/gateway/auth"
 	"github.com/apirout/apirout/internal/gateway/registry"
+	"github.com/google/uuid"
 )
 
 var (
@@ -26,18 +28,22 @@ var (
 
 // Handler handles dynamic API requests for published routes and endpoints
 type Handler struct {
-	executor        *Service
-	reader          *registry.Reader
-	apiClientAuth   *apiclientauth.Service
-	proxyTransports sync.Map // serviceID -> *http.Transport
+	executor         *Service
+	reader           *registry.Reader
+	apiClientAuth    *apiclientauth.Service
+	authEngine       *auth.Engine
+	outboundInjector *auth.OutboundInjector
+	proxyTransports  sync.Map // serviceID -> *http.Transport
 }
 
 // NewHandler creates a new dynamic API handler
-func NewHandler(executor *Service, reader *registry.Reader, apiClientAuth *apiclientauth.Service) *Handler {
+func NewHandler(executor *Service, reader *registry.Reader, apiClientAuth *apiclientauth.Service, authEngine *auth.Engine, outboundInjector *auth.OutboundInjector) *Handler {
 	return &Handler{
-		executor:      executor,
-		reader:        reader,
-		apiClientAuth: apiClientAuth,
+		executor:         executor,
+		reader:           reader,
+		apiClientAuth:    apiClientAuth,
+		authEngine:       authEngine,
+		outboundInjector: outboundInjector,
 	}
 }
 
@@ -222,47 +228,71 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 	var session *SessionContext
 
 	if !endpoint.IsPublic {
-		jwtToken, rawAPIKey := extractTokenOrKey(r)
 		var consumerID string
 		var groupID string
+		var authResolved bool
 
-		if rawAPIKey != "" {
-			// Authenticate using API Key credential
-			consumer, _, err := h.reader.ValidateAPIKey(rawAPIKey)
+		// 2a. Try new auth plugin engine first (if plugins are configured)
+		if h.authEngine != nil && h.authEngine.HasPlugins(endpoint.ID, endpoint.ServiceID) {
+			authResult, err := h.authEngine.Authenticate(r, endpoint, endpoint.ServiceID)
 			if err != nil {
 				statusCode = http.StatusUnauthorized
 				success = false
-				errStr := "Invalid API key: " + err.Error()
+				errStr := err.Error()
 				errorMsg = &errStr
 				httputil.WriteJSONError(w, http.StatusUnauthorized, errStr)
 				return
 			}
-			consumerID = consumer.ID
-			authType = "key-auth"
-			if consumer.GroupID != nil {
-				groupID = *consumer.GroupID
+			if authResult != nil {
+				consumerID = authResult.ConsumerID
+				groupID = authResult.GroupID
+				authType = authResult.AuthType
+				authResolved = true
 			}
-		} else if jwtToken != "" {
-			// Authenticate using JWT Bearer token
-			claims, err := h.apiClientAuth.ValidateToken(jwtToken)
-			if err != nil {
+		}
+
+		// 2b. Fallback to legacy auth if no plugin resolved the identity
+		if !authResolved {
+			jwtToken, rawAPIKey := extractTokenOrKey(r)
+
+			if rawAPIKey != "" {
+				// Authenticate using API Key credential
+				consumer, _, err := h.reader.ValidateAPIKey(rawAPIKey)
+				if err != nil {
+					statusCode = http.StatusUnauthorized
+					success = false
+					errStr := "Invalid API key: " + err.Error()
+					errorMsg = &errStr
+					httputil.WriteJSONError(w, http.StatusUnauthorized, errStr)
+					return
+				}
+				consumerID = consumer.ID
+				authType = "key-auth"
+				if consumer.GroupID != nil {
+					groupID = *consumer.GroupID
+				}
+			} else if jwtToken != "" {
+				// Authenticate using JWT Bearer token
+				claims, err := h.apiClientAuth.ValidateToken(jwtToken)
+				if err != nil {
+					statusCode = http.StatusUnauthorized
+					success = false
+					errStr := "Invalid or expired token"
+					errorMsg = &errStr
+					httputil.WriteJSONError(w, http.StatusUnauthorized, errStr)
+					return
+				}
+				consumerID = claims.APIClientID
+				groupID = claims.GroupID
+				authType = "jwt"
+			} else {
 				statusCode = http.StatusUnauthorized
 				success = false
-				errStr := "Invalid or expired token"
+				errStr := "Authentication required (provide X-API-Key or Authorization Bearer token)"
 				errorMsg = &errStr
 				httputil.WriteJSONError(w, http.StatusUnauthorized, errStr)
 				return
 			}
-			consumerID = claims.APIClientID
-			groupID = claims.GroupID
-			authType = "jwt"
-		} else {
-			statusCode = http.StatusUnauthorized
-			success = false
-			errStr := "Authentication required (provide X-API-Key or Authorization Bearer token)"
-			errorMsg = &errStr
-			httputil.WriteJSONError(w, http.StatusUnauthorized, errStr)
-			return
 		}
 
 		// Authorization Check: Verify Consumer has access to this Route
@@ -286,10 +316,14 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Service Resolution & Gateway Execution
+	var outboundAuth *models.ServiceOutboundAuth
 	if endpoint.ServiceID != nil && *endpoint.ServiceID != "" {
 		service, err := h.reader.GetServiceByID(*endpoint.ServiceID)
 		if err == nil && service != nil && service.Enabled {
 			serviceName = service.Name
+
+			// Load outbound auth config for this service
+			outboundAuth, _ = h.reader.GetOutboundAuth(service.ID)
 
 			// Case A: Service routes to an Upstream pool (Load-balanced Targets)
 			if service.UpstreamID != nil && *service.UpstreamID != "" {
@@ -311,7 +345,9 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 				target := selectTarget(targets, algorithm, clientIP, r, *service.UpstreamID)
 				if target != nil {
 					upstreamURI = fmt.Sprintf("%s://%s:%d%s", service.Protocol, target.Host, target.Port, service.Path)
-					h.reverseProxyRequest(w, r, endpoint, service, target.Host, target.Port)
+					releaseConn := trackTargetConn(target.ID)
+					defer releaseConn()
+					h.reverseProxyRequest(w, r, endpoint, service, target.Host, target.Port, outboundAuth)
 					return
 				}
 			}
@@ -319,7 +355,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 			// Case B: Service points directly to a backend host/port
 			if service.Host != "" && service.Protocol != "database" {
 				upstreamURI = fmt.Sprintf("%s://%s:%d%s", service.Protocol, service.Host, service.Port, service.Path)
-				h.reverseProxyRequest(w, r, endpoint, service, service.Host, service.Port)
+				h.reverseProxyRequest(w, r, endpoint, service, service.Host, service.Port, outboundAuth)
 				return
 			}
 		}
@@ -395,7 +431,7 @@ func (h *Handler) getTransport(service *models.Service) *http.Transport {
 }
 
 // reverseProxyRequest proxies an HTTP request to the resolved backend instance
-func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, endpoint *models.Endpoint, service *models.Service, backendHost string, backendPort int) {
+func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, endpoint *models.Endpoint, service *models.Service, backendHost string, backendPort int, outboundAuth *models.ServiceOutboundAuth) {
 	protocol := service.Protocol
 	if protocol == "" || protocol == "database" {
 		protocol = "http"
@@ -409,7 +445,11 @@ func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, en
 
 	proxy := nethttputil.NewSingleHostReverseProxy(targetURL)
 
-	// Custom Director to handle strip_path, preserve_host, and headers
+	// Capture outbound injector reference for closure
+	outboundInjector := h.outboundInjector
+	outAuth := outboundAuth
+
+	// Custom Director to handle strip_path, preserve_host, headers, and outbound auth
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
@@ -441,6 +481,11 @@ func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, en
 		req.Header.Set("X-Forwarded-Proto", protocol)
 		req.Header.Set("X-Gateway-Service", service.Name)
 		req.Header.Set("X-Gateway-Route", endpoint.Name)
+
+		// Outbound Authentication Injection
+		if outboundInjector != nil && outAuth != nil {
+			_ = outboundInjector.InjectAuth(req, outAuth)
+		}
 	}
 
 	// Use pooled transport with keep-alive
@@ -507,8 +552,17 @@ func selectTarget(targets []models.Target, algorithm string, clientIP string, r 
 	}
 }
 
+func trackTargetConn(targetID string) func() {
+	val, _ := activeConns.LoadOrStore(targetID, new(int64))
+	counter := val.(*int64)
+	atomic.AddInt64(counter, 1)
+	return func() {
+		atomic.AddInt64(counter, -1)
+	}
+}
+
 func fmtID() string {
-	return time.Now().Format("20060102150405.000000")
+	return uuid.New().String()
 }
 
 func isDomainAllowed(host, allowedDomains string) bool {

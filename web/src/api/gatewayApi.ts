@@ -156,6 +156,10 @@ export interface Connection {
     username: string;
     ssl_mode?: string;
     connection_health?: string;
+    max_open_conns?: number;
+    max_idle_conns?: number;
+    conn_max_lifetime?: number;
+    is_read_only?: boolean;
     created_at: string;
 }
 
@@ -212,12 +216,12 @@ export const gatewayApi = {
     getConsumers: () => apiClient.get<{ data: Consumer[] }>('/consumers'),
     getConsumer: (id: string) => apiClient.get<Consumer>(`/consumers/${id}`),
     createConsumer: (data: Partial<Consumer> & { password?: string; endpoint_ids?: string[] }) => apiClient.post<Consumer>('/consumers', data),
-    updateConsumer: (id: string, data: Partial<Consumer> & { endpoint_ids?: string[] }) => apiClient.put<Consumer>(`/consumers/${id}`, data),
+    updateConsumer: (id: string, data: Partial<Consumer> & { password?: string; endpoint_ids?: string[] }) => apiClient.put<Consumer>(`/consumers/${id}`, data),
     deleteConsumer: (id: string) => apiClient.delete(`/consumers/${id}`),
 
     // Credentials
     getCredentials: (consumerId: string) => apiClient.get<{ data: ConsumerCredential[] }>(`/consumers/${consumerId}/credentials`),
-    createCredential: (consumerId: string, data: { name: string; key_type: string; expires_at?: string }) =>
+    createCredential: (consumerId: string, data: { name: string; key_type: string; secret?: string; expires_at?: string }) =>
         apiClient.post<ConsumerCredentialCreated>(`/consumers/${consumerId}/credentials`, data),
     toggleCredential: (consumerId: string, credId: string, enabled: boolean) =>
         apiClient.post(`/consumers/${consumerId}/credentials/${credId}/toggle`, { enabled }),
@@ -251,10 +255,61 @@ export const gatewayApi = {
     previewQuery: (data: { connection_id: string; sql: string; limit?: number; offset?: number }) =>
         apiClient.post<{ data: any[] }>('/queries/preview', data),
 
+    // Auth Plugins (Inbound)
+    getAuthPlugins: (params?: { scope?: string; entity_id?: string }) => {
+        const q = new URLSearchParams();
+        if (params?.scope) q.set('scope', params.scope);
+        if (params?.entity_id) q.set('entity_id', params.entity_id);
+        const qs = q.toString();
+        return apiClient.get<{ data: AuthPluginConfig[] }>(`/auth-plugins${qs ? `?${qs}` : ''}`);
+    },
+    getAuthPlugin: (id: string) =>
+        apiClient.get<AuthPluginConfig>(`/auth-plugins/${id}`),
+    createAuthPlugin: (data: Partial<AuthPluginConfig>) =>
+        apiClient.post<AuthPluginConfig>('/auth-plugins', data),
+    updateAuthPlugin: (id: string, data: Partial<AuthPluginConfig>) =>
+        apiClient.put<AuthPluginConfig>(`/auth-plugins/${id}`, data),
+    deleteAuthPlugin: (id: string) =>
+        apiClient.delete(`/auth-plugins/${id}`),
+
+    // Outbound Auth (Upstream)
+    getOutboundAuth: (serviceId: string) =>
+        apiClient.get<ServiceOutboundAuth>(`/services/${serviceId}/outbound-auth`),
+    setOutboundAuth: (serviceId: string, data: Partial<ServiceOutboundAuth>) =>
+        apiClient.put<ServiceOutboundAuth>(`/services/${serviceId}/outbound-auth`, data),
+    deleteOutboundAuth: (serviceId: string) =>
+        apiClient.delete(`/services/${serviceId}/outbound-auth`),
+
     // Monitoring & Request Logs (Kong Analytics Explorer)
     getRequests: (limit?: number) => apiClient.get<{ data: ApiRequest[] }>(`/monitoring/requests?limit=${limit || 100}`),
     getDashboardStats: () => apiClient.get<any>('/dashboard/stats'),
 };
+
+export interface AuthPluginConfig {
+    id: string;
+    plugin_name: string;
+    scope: 'service' | 'route' | 'consumer' | 'global';
+    service_id?: string;
+    route_id?: string;
+    consumer_id?: string;
+    service_name?: string;
+    route_name?: string;
+    consumer_name?: string;
+    config: string;
+    enabled: boolean;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface ServiceOutboundAuth {
+    id?: string;
+    service_id: string;
+    auth_type: string;
+    config: string;
+    enabled: boolean;
+    created_at?: string;
+    updated_at?: string;
+}
 
 export interface ApiRequest {
     id: string;

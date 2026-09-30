@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { gatewayApi, GatewayService, Route, QueryItem, GatewayDomain } from '../../api/gatewayApi';
 import { useToast } from '../../components/Toast';
 import { IconArrowLeft, IconServer, IconBolt, IconQuery, IconCheck, IconGlobe } from '../../components/Icons';
+import { AuthPluginManager } from '../../components/AuthPluginManager';
 
 type TargetType = 'service' | 'instant_api' | 'query';
 
@@ -19,6 +20,7 @@ export default function RouteFormPage() {
     const [queries, setQueries] = useState<QueryItem[]>([]);
     const [registeredDomains, setRegisteredDomains] = useState<GatewayDomain[]>([]);
     const [targetType, setTargetType] = useState<TargetType>('service');
+    const [initialAuthPlugin, setInitialAuthPlugin] = useState<string>('key-auth');
 
     const [formData, setFormData] = useState({
         name: '',
@@ -169,7 +171,21 @@ export default function RouteFormPage() {
                 await gatewayApi.updateRoute(id, payload);
                 toast.success('Route updated successfully');
             } else {
-                await gatewayApi.createRoute(payload);
+                const res: any = await gatewayApi.createRoute(payload);
+                const newRouteId = res?.data?.id || res?.id;
+                if (newRouteId && !formData.is_public && initialAuthPlugin !== 'none') {
+                    try {
+                        await gatewayApi.createAuthPlugin({
+                            plugin_name: initialAuthPlugin,
+                            scope: 'route',
+                            route_id: newRouteId,
+                            enabled: true,
+                            config: '{}'
+                        });
+                    } catch (e) {
+                        console.error('Failed to attach initial auth plugin', e);
+                    }
+                }
                 toast.success('Route created successfully');
             }
             navigate('/routes');
@@ -220,38 +236,40 @@ export default function RouteFormPage() {
     }
 
     return (
-        <div style={{ maxWidth: '1080px', margin: '0', paddingBottom: '60px' }}>
-            {/* Breadcrumb Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
+        <div className="overview-page-wrapper" style={{ paddingBottom: '60px' }}>
+            {/* Breadcrumb */}
+            <div className="overview-breadcrumb">
                 <span>Gateway</span>
-                <span>/</span>
+                <span className="breadcrumb-sep">/</span>
                 <Link to="/routes" style={{ color: '#2563eb', textDecoration: 'none' }}>
                     Routes
                 </Link>
-                <span>/</span>
-                <span style={{ color: '#0f172a', fontWeight: 600 }}>{isEdit ? 'Edit Route' : 'New Route'}</span>
+                <span className="breadcrumb-sep">/</span>
+                <span className="breadcrumb-curr">{isEdit ? 'Edit Route' : 'New Route'}</span>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <div>
-                    <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a', margin: '0 0 6px' }}>
+            <div className="overview-header">
+                <div className="overview-title-col">
+                    <h1 className="overview-title">
                         {isEdit ? 'Edit Gateway Route' : 'New Gateway Route'}
                     </h1>
-                    <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>
+                    <p className="overview-subtitle">
                         Kong-aligned route matching rules that bind client HTTP requests directly to backend services.
                     </p>
                 </div>
-                <Link to="/routes" className="btn-header-refresh" style={{ textDecoration: 'none' }}>
-                    <IconArrowLeft width={14} height={14} />
-                    <span>Back to Routes</span>
-                </Link>
+                <div className="overview-header-actions">
+                    <Link to="/routes" className="btn-header-refresh" style={{ textDecoration: 'none' }}>
+                        <IconArrowLeft width={14} height={14} />
+                        <span>Back to Routes</span>
+                    </Link>
+                </div>
             </div>
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
                 {/* Card 1: Route Matching Rules */}
                 <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                        1. Route Matching Rules
+                        Route Matching Rules
                     </h2>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '14px', marginBottom: '16px' }}>
@@ -328,7 +346,7 @@ export default function RouteFormPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
                         <div>
                             <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>
-                                2. Target Routing Destination
+                                Target Routing Destination
                             </h2>
                             <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
                                 Choose whether requests are proxied to a Gateway Service, handled via Instant CRUD, or executed as a Database SQL Query.
@@ -342,12 +360,12 @@ export default function RouteFormPage() {
                         <div
                             onClick={() => handleSelectTargetType('service')}
                             style={{
-                                border: targetType === 'service' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                border: targetType === 'service' ? '2px solid #2563eb' : '2px solid #e2e8f0',
                                 backgroundColor: targetType === 'service' ? '#eff6ff' : '#ffffff',
                                 borderRadius: '10px',
                                 padding: '16px',
                                 cursor: 'pointer',
-                                transition: 'all 150ms ease',
+                                transition: 'border-color 150ms ease, background-color 150ms ease',
                                 position: 'relative'
                             }}
                         >
@@ -387,12 +405,12 @@ export default function RouteFormPage() {
                         <div
                             onClick={() => handleSelectTargetType('instant_api')}
                             style={{
-                                border: targetType === 'instant_api' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                border: targetType === 'instant_api' ? '2px solid #2563eb' : '2px solid #e2e8f0',
                                 backgroundColor: targetType === 'instant_api' ? '#eff6ff' : '#ffffff',
                                 borderRadius: '10px',
                                 padding: '16px',
                                 cursor: 'pointer',
-                                transition: 'all 150ms ease',
+                                transition: 'border-color 150ms ease, background-color 150ms ease',
                                 position: 'relative'
                             }}
                         >
@@ -432,12 +450,12 @@ export default function RouteFormPage() {
                         <div
                             onClick={() => handleSelectTargetType('query')}
                             style={{
-                                border: targetType === 'query' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                border: targetType === 'query' ? '2px solid #2563eb' : '2px solid #e2e8f0',
                                 backgroundColor: targetType === 'query' ? '#eff6ff' : '#ffffff',
                                 borderRadius: '10px',
                                 padding: '16px',
                                 cursor: 'pointer',
-                                transition: 'all 150ms ease',
+                                transition: 'border-color 150ms ease, background-color 150ms ease',
                                 position: 'relative'
                             }}
                         >
@@ -610,7 +628,7 @@ export default function RouteFormPage() {
                 {/* Card 3: Security & Rate Limiting */}
                 <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                        3. Security, Access &amp; Rate Limiting
+                        Security, Access &amp; Rate Limiting
                     </h2>
 
                     <div style={{ marginBottom: '16px' }}>
@@ -701,7 +719,7 @@ export default function RouteFormPage() {
                                     fontWeight: 600,
                                     cursor: 'pointer',
                                     transition: 'all 150ms ease',
-                                    border: isWildcardDomain ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
+                                    border: isWildcardDomain ? '1.5px solid #2563eb' : '1.5px solid #cbd5e1',
                                     backgroundColor: isWildcardDomain ? '#eff6ff' : '#ffffff',
                                     color: isWildcardDomain ? '#1d4ed8' : '#475569'
                                 }}
@@ -728,7 +746,7 @@ export default function RouteFormPage() {
                                             fontWeight: 500,
                                             cursor: 'pointer',
                                             transition: 'all 150ms ease',
-                                            border: isSelected ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
+                                            border: isSelected ? '1.5px solid #2563eb' : '1.5px solid #cbd5e1',
                                             backgroundColor: isSelected ? '#eff6ff' : '#ffffff',
                                             color: isSelected ? '#1d4ed8' : '#334155'
                                         }}
@@ -808,7 +826,15 @@ export default function RouteFormPage() {
                             type="checkbox"
                             id="route-public"
                             checked={formData.is_public}
-                            onChange={e => setFormData(prev => ({ ...prev, is_public: e.target.checked }))}
+                            onChange={e => {
+                                const isPub = e.target.checked;
+                                setFormData(prev => ({ ...prev, is_public: isPub }));
+                                if (isPub) {
+                                    setInitialAuthPlugin('none');
+                                } else if (initialAuthPlugin === 'none') {
+                                    setInitialAuthPlugin('key-auth');
+                                }
+                            }}
                             style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                         />
                         <label htmlFor="route-public" style={{ fontSize: '13.5px', fontWeight: 500, color: '#1e293b', cursor: 'pointer' }}>
@@ -816,6 +842,63 @@ export default function RouteFormPage() {
                         </label>
                     </div>
                 </div>
+
+                {/* Card 4: Inbound Authentication Plugins */}
+                {isEdit && id ? (
+                    <div style={{ marginBottom: '24px' }}>
+                        <AuthPluginManager scope="route" entityId={id} entityName={formData.name} />
+                    </div>
+                ) : (
+                    !formData.is_public && (
+                        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                            <div style={{ marginBottom: '8px' }}>
+                                <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                                    Inbound Authentication Plugin
+                                </h2>
+                            </div>
+                            <p style={{ fontSize: '12.5px', color: '#64748b', margin: '0 0 16px 0' }}>
+                                Select the initial authentication plugin to protect this route. Multiple plugins can be chained (OR logic) after creation.
+                            </p>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                                {[
+                                    { id: 'key-auth', name: 'API Key (key-auth)', desc: 'Header X-API-Key or ?api_key query' },
+                                    { id: 'jwt-auth', name: 'JWT Bearer (jwt-auth)', desc: 'Cryptographically signed JWT' },
+                                    { id: 'basic-auth', name: 'Basic Auth (basic-auth)', desc: 'Standard HTTP Basic user:pass' },
+                                    { id: 'hmac-auth', name: 'HMAC Signature (hmac-auth)', desc: 'HMAC-SHA256 signature headers' },
+                                    { id: 'oauth2', name: 'OAuth 2.0 (oauth2)', desc: 'OAuth2 bearer access tokens' },
+                                    { id: 'none', name: 'Legacy Fallback', desc: 'Global gateway authentication chain' },
+                                ].map(p => {
+                                    const isSel = initialAuthPlugin === p.id;
+                                    return (
+                                        <div
+                                            key={p.id}
+                                            onClick={() => setInitialAuthPlugin(p.id)}
+                                            style={{
+                                                border: isSel ? '2px solid #2563eb' : '2px solid #e2e8f0',
+                                                backgroundColor: isSel ? '#eff6ff' : '#ffffff',
+                                                borderRadius: '8px',
+                                                padding: '12px',
+                                                cursor: 'pointer',
+                                                transition: 'border-color 150ms ease, background-color 150ms ease'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                <span style={{ fontSize: '13px', fontWeight: 600, color: isSel ? '#1d4ed8' : '#1e293b' }}>
+                                                    {p.name}
+                                                </span>
+                                                {isSel && <IconCheck width={14} height={14} style={{ color: '#2563eb' }} />}
+                                            </div>
+                                            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px' }}>
+                                                {p.desc}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )
+                )}
 
                 {/* Bottom Action Bar */}
                 <div style={{

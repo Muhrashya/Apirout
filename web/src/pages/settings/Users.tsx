@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../api/apiClient';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthProvider';
-import { Modal } from '../../components/Modal';
 import {
     IconUser, IconPlus, IconSearch, IconRefresh,
-    IconPencil, IconTrash, IconEye, IconCopy, IconCheck
+    IconPencil, IconTrash, IconCopy, IconCheck
 } from '../../components/Icons';
 
 interface User {
@@ -16,22 +16,13 @@ interface User {
 }
 
 export default function Users() {
+    const navigate = useNavigate();
     const { user: currentUser } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingUser, setEditingUser] = useState<User | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedRoleFilter, setSelectedRoleFilter] = useState('ALL');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [showPassword, setShowPassword] = useState(false);
     const [copiedId, setCopiedId] = useState<string | null>(null);
-
-    const [form, setForm] = useState({
-        email: '',
-        password: '',
-        role: 'MEMBER',
-    });
 
     const toast = useToast();
 
@@ -59,59 +50,6 @@ export default function Users() {
         setCopiedId(id);
         toast.success('Copied to clipboard');
         setTimeout(() => setCopiedId(null), 2000);
-    };
-
-    const openCreateModal = () => {
-        setEditingUser(null);
-        setForm({ email: '', password: '', role: 'MEMBER' });
-        setShowPassword(false);
-        setIsModalOpen(true);
-    };
-
-    const openEditModal = (targetUser: User) => {
-        setEditingUser(targetUser);
-        setForm({ email: targetUser.email, password: '', role: targetUser.role });
-        setShowPassword(false);
-        setIsModalOpen(true);
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-
-        if (!form.email.trim()) {
-            toast.error('Email is required');
-            return;
-        }
-
-        if (!editingUser && !form.password) {
-            toast.error('Password is required for new users');
-            return;
-        }
-
-        setIsSubmitting(true);
-        try {
-            if (editingUser) {
-                await apiClient.put(`/users/${editingUser.id}`, {
-                    email: form.email.trim(),
-                    role: form.role,
-                    password: form.password || undefined,
-                });
-                toast.success('User updated successfully');
-            } else {
-                await apiClient.post('/users', {
-                    email: form.email.trim(),
-                    password: form.password,
-                    role: form.role,
-                });
-                toast.success('User created successfully');
-            }
-            setIsModalOpen(false);
-            loadData();
-        } catch (err: any) {
-            toast.error(err?.message || 'Failed to save user');
-        } finally {
-            setIsSubmitting(false);
-        }
     };
 
     const handleDelete = async (targetUser: User) => {
@@ -176,7 +114,7 @@ export default function Users() {
             </div>
 
             {/* Header */}
-            <div className="overview-header" style={{ marginBottom: '8px' }}>
+            <div className="overview-header">
                 <div className="overview-title-col">
                     <h1 className="overview-title">Users &amp; Accounts</h1>
                     <p className="overview-subtitle">
@@ -184,23 +122,10 @@ export default function Users() {
                     </p>
                 </div>
 
-                <div style={{ display: 'flex', gap: '10px' }}>
+                <div className="overview-header-actions">
                     <button
+                        className="btn-header-refresh"
                         onClick={loadData}
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '9px 14px',
-                            background: '#ffffff',
-                            color: '#475569',
-                            border: '1px solid #cbd5e1',
-                            borderRadius: '8px',
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
-                        }}
                         title="Reload users"
                     >
                         <IconRefresh width={14} height={14} />
@@ -208,21 +133,8 @@ export default function Users() {
                     </button>
 
                     <button
-                        onClick={openCreateModal}
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '9px 16px',
-                            background: '#2563eb',
-                            color: '#ffffff',
-                            border: 'none',
-                            borderRadius: '8px',
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            boxShadow: '0 1px 2px rgba(37,99,235,0.2)'
-                        }}
+                        className="btn-header-new-route"
+                        onClick={() => navigate('/settings/users/new')}
                     >
                         <IconPlus width={15} height={15} />
                         <span>New User</span>
@@ -409,7 +321,7 @@ export default function Users() {
                                             <td style={{ padding: '14px 20px', textAlign: 'right' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
                                                     <button
-                                                        onClick={() => openEditModal(u)}
+                                                        onClick={() => navigate(`/settings/users/${u.id}/edit`)}
                                                         style={{
                                                             display: 'inline-flex',
                                                             alignItems: 'center',
@@ -466,198 +378,6 @@ export default function Users() {
                     </div>
                 )}
             </div>
-
-            {/* Modal Create / Edit User */}
-            <Modal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                title={editingUser ? `Edit User: ${editingUser.email}` : 'Create New User'}
-            >
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                    <div>
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#1e293b', marginBottom: '6px' }}>
-                            Email Address *
-                        </label>
-                        <input
-                            type="email"
-                            required
-                            value={form.email}
-                            onChange={(e) => setForm({ ...form, email: e.target.value })}
-                            placeholder="admin@company.com"
-                            style={{
-                                width: '100%',
-                                padding: '9px 12px',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '8px',
-                                fontSize: '13px',
-                                outline: 'none'
-                            }}
-                        />
-                    </div>
-
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                            <label style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
-                                {editingUser ? 'New Password (leave blank to keep current)' : 'Password *'}
-                            </label>
-                            <button
-                                type="button"
-                                onClick={() => setShowPassword(prev => !prev)}
-                                style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            >
-                                <IconEye width={14} height={14} />
-                                <span>{showPassword ? 'Hide' : 'Show'}</span>
-                            </button>
-                        </div>
-                        <input
-                            type={showPassword ? 'text' : 'password'}
-                            required={!editingUser}
-                            value={form.password}
-                            onChange={(e) => setForm({ ...form, password: e.target.value })}
-                            placeholder={editingUser ? '••••••••' : 'Enter secure password'}
-                            style={{
-                                width: '100%',
-                                padding: '9px 12px',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '8px',
-                                fontSize: '13px',
-                                outline: 'none'
-                            }}
-                        />
-                    </div>
-
-                    <div>
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#1e293b', marginBottom: '8px' }}>
-                            Account Role & Permissions *
-                        </label>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {/* Super Admin Option */}
-                            <label
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: '10px',
-                                    padding: '12px',
-                                    border: form.role === 'SUPER_ADMIN' ? '1.5px solid #2563eb' : '1px solid #e2e8f0',
-                                    borderRadius: '8px',
-                                    background: form.role === 'SUPER_ADMIN' ? '#f0f7ff' : '#ffffff',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                <input
-                                    type="radio"
-                                    name="role"
-                                    value="SUPER_ADMIN"
-                                    checked={form.role === 'SUPER_ADMIN'}
-                                    onChange={(e) => setForm({ ...form, role: e.target.value })}
-                                    style={{ marginTop: '2px' }}
-                                />
-                                <div>
-                                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>Super Administrator</div>
-                                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                                        Full root access to all system settings, user accounts, databases, custom branding, and console controls.
-                                    </div>
-                                </div>
-                            </label>
-
-                            {/* Admin Option */}
-                            <label
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: '10px',
-                                    padding: '12px',
-                                    border: form.role === 'ADMIN' ? '1.5px solid #2563eb' : '1px solid #e2e8f0',
-                                    borderRadius: '8px',
-                                    background: form.role === 'ADMIN' ? '#f0f7ff' : '#ffffff',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                <input
-                                    type="radio"
-                                    name="role"
-                                    value="ADMIN"
-                                    checked={form.role === 'ADMIN'}
-                                    onChange={(e) => setForm({ ...form, role: e.target.value })}
-                                    style={{ marginTop: '2px' }}
-                                />
-                                <div>
-                                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>Administrator</div>
-                                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                                        Can configure gateway services, routes, upstreams, database sources, and export API collections.
-                                    </div>
-                                </div>
-                            </label>
-
-                            {/* Member Option */}
-                            <label
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: '10px',
-                                    padding: '12px',
-                                    border: form.role === 'MEMBER' ? '1.5px solid #2563eb' : '1px solid #e2e8f0',
-                                    borderRadius: '8px',
-                                    background: form.role === 'MEMBER' ? '#f0f7ff' : '#ffffff',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                <input
-                                    type="radio"
-                                    name="role"
-                                    value="MEMBER"
-                                    checked={form.role === 'MEMBER'}
-                                    onChange={(e) => setForm({ ...form, role: e.target.value })}
-                                    style={{ marginTop: '2px' }}
-                                />
-                                <div>
-                                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>Member (Viewer)</div>
-                                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                                        Standard team member with view access to gateway routes, observability logs, and analytics.
-                                    </div>
-                                </div>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                        <button
-                            type="button"
-                            onClick={() => setIsModalOpen(false)}
-                            style={{
-                                padding: '9px 16px',
-                                background: '#ffffff',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '8px',
-                                fontSize: '13px',
-                                fontWeight: 600,
-                                color: '#475569',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={isSubmitting}
-                            style={{
-                                padding: '9px 18px',
-                                background: '#2563eb',
-                                border: 'none',
-                                borderRadius: '8px',
-                                fontSize: '13px',
-                                fontWeight: 600,
-                                color: '#ffffff',
-                                cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                                opacity: isSubmitting ? 0.7 : 1
-                            }}
-                        >
-                            {isSubmitting ? 'Saving...' : editingUser ? 'Save Changes' : 'Create User'}
-                        </button>
-                    </div>
-                </form>
-            </Modal>
         </div>
     );
 }

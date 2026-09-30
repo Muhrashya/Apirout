@@ -27,7 +27,7 @@ func (c *MSSQLConnector) BuildConnectionString(host string, port int, dbname, us
 	}
 
 	return fmt.Sprintf(
-		"sqlserver://%s:%s@%s:%d?database=%s&connection+timeout=5",
+		"sqlserver://%s:%s@%s:%d?database=%s&connection+timeout=5&TrustServerCertificate=true",
 		username, encodedPassword, host, port, dbname,
 	)
 }

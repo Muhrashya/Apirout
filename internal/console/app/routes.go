@@ -183,6 +183,19 @@ func buildAdminAPIRouter(d routerDeps) *mux.Router {
 	adminRouter.HandleFunc("/consumers/{id}/routes", consumersHandler.GetRoutes).Methods("GET")
 	adminRouter.Handle("/consumers/{id}/routes", d.authService.RequireRole("ADMIN", "SUPER_ADMIN")(http.HandlerFunc(consumersHandler.UpdateRoutes))).Methods("PUT")
 
+	// Auth Plugins & Outbound Authentication (Inbound Plugins & Upstream Outbound Auth)
+	authPluginsHandler := server.NewAuthPluginsHandler(d.reg, d.cfg.EncryptionKey)
+	adminRouter.HandleFunc("/auth-plugins", authPluginsHandler.List).Methods("GET")
+	adminRouter.Handle("/auth-plugins", d.authService.RequireRole("ADMIN", "SUPER_ADMIN")(http.HandlerFunc(authPluginsHandler.Create))).Methods("POST")
+	adminRouter.HandleFunc("/auth-plugins/{id}", authPluginsHandler.Get).Methods("GET")
+	adminRouter.Handle("/auth-plugins/{id}", d.authService.RequireRole("ADMIN", "SUPER_ADMIN")(http.HandlerFunc(authPluginsHandler.Update))).Methods("PUT")
+	adminRouter.Handle("/auth-plugins/{id}", d.authService.RequireRole("ADMIN", "SUPER_ADMIN")(http.HandlerFunc(authPluginsHandler.Delete))).Methods("DELETE")
+
+	// Upstream Outbound Auth
+	adminRouter.HandleFunc("/services/{id}/outbound-auth", authPluginsHandler.GetOutboundAuth).Methods("GET")
+	adminRouter.Handle("/services/{id}/outbound-auth", d.authService.RequireRole("ADMIN", "SUPER_ADMIN")(http.HandlerFunc(authPluginsHandler.SetOutboundAuth))).Methods("PUT", "POST")
+	adminRouter.Handle("/services/{id}/outbound-auth", d.authService.RequireRole("ADMIN", "SUPER_ADMIN")(http.HandlerFunc(authPluginsHandler.DeleteOutboundAuth))).Methods("DELETE")
+
 	// Consumer Groups
 	adminRouter.HandleFunc("/consumer-groups", consumersHandler.ListGroups).Methods("GET")
 	adminRouter.Handle("/consumer-groups", d.authService.RequireRole("ADMIN", "SUPER_ADMIN")(http.HandlerFunc(consumersHandler.CreateGroup))).Methods("POST")

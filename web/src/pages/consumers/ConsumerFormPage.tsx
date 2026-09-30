@@ -19,11 +19,13 @@ export default function ConsumerFormPage() {
         custom_id: '',
         group_id: '',
         description: '',
+        password: '',
         status: 'active' as 'active' | 'suspended' | 'revoked',
         generate_key_now: true,
         key_name: 'Default API Key'
     });
 
+    const [showPassword, setShowPassword] = useState(false);
     const [generatedKey, setGeneratedKey] = useState<string | null>(null);
 
     useEffect(() => {
@@ -44,6 +46,7 @@ export default function ConsumerFormPage() {
                         custom_id: c.custom_id || '',
                         group_id: c.group_id || '',
                         description: c.description || '',
+                        password: '',
                         status: c.status || 'active',
                         generate_key_now: false,
                         key_name: ''
@@ -72,6 +75,7 @@ export default function ConsumerFormPage() {
                     custom_id: formData.custom_id.trim() || undefined,
                     group_id: formData.group_id || undefined,
                     description: formData.description.trim() || undefined,
+                    password: formData.password.trim() || undefined,
                     status: formData.status
                 });
                 toast.success('Consumer updated successfully');
@@ -82,6 +86,7 @@ export default function ConsumerFormPage() {
                     custom_id: formData.custom_id.trim() || undefined,
                     group_id: formData.group_id || undefined,
                     description: formData.description.trim() || undefined,
+                    password: formData.password.trim() || undefined,
                     status: formData.status
                 });
 
@@ -168,37 +173,39 @@ export default function ConsumerFormPage() {
     }
 
     return (
-        <div style={{ maxWidth: '1080px', margin: '0', paddingBottom: '60px' }}>
+        <div className="overview-page-wrapper" style={{ paddingBottom: '60px' }}>
             {/* Breadcrumb Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
+            <div className="overview-breadcrumb">
                 <span>Gateway</span>
-                <span>/</span>
+                <span className="breadcrumb-sep">/</span>
                 <Link to="/consumers" style={{ color: '#2563eb', textDecoration: 'none' }}>
                     Consumers
                 </Link>
-                <span>/</span>
-                <span style={{ color: '#0f172a', fontWeight: 600 }}>{isEdit ? 'Edit Consumer' : 'New Consumer'}</span>
+                <span className="breadcrumb-sep">/</span>
+                <span className="breadcrumb-curr">{isEdit ? 'Edit Consumer' : 'New Consumer'}</span>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <div>
-                    <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a', margin: '0 0 6px' }}>
+            <div className="overview-header">
+                <div className="overview-title-col">
+                    <h1 className="overview-title">
                         {isEdit ? 'Edit Consumer' : 'New Gateway Consumer'}
                     </h1>
-                    <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>
+                    <p className="overview-subtitle">
                         Consumers represent external API clients, developers, or machine-to-machine integrations accessing Gateway routes.
                     </p>
                 </div>
-                <Link to="/consumers" className="btn-header-refresh" style={{ textDecoration: 'none' }}>
-                    <IconArrowLeft width={14} height={14} />
-                    <span>Back to Consumers</span>
-                </Link>
+                <div className="overview-header-actions">
+                    <Link to="/consumers" className="btn-header-refresh" style={{ textDecoration: 'none' }}>
+                        <IconArrowLeft width={14} height={14} />
+                        <span>Back to Consumers</span>
+                    </Link>
+                </div>
             </div>
 
-            <form onSubmit={handleSubmit}>
-                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                        1. Consumer Identity
+                        Consumer Identity
                     </h2>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
@@ -218,6 +225,31 @@ export default function ConsumerFormPage() {
                         </div>
 
                         <div className="form-group">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <label className="label">Client Password (for POST /api/login)</label>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '11.5px', cursor: 'pointer', padding: 0 }}
+                                >
+                                    {showPassword ? 'Hide' : 'Show'}
+                                </button>
+                            </div>
+                            <input
+                                type={showPassword ? 'text' : 'password'}
+                                className="input"
+                                placeholder={isEdit ? "•••••••• (Leave blank to keep unchanged)" : "Password to exchange for Bearer token"}
+                                value={formData.password}
+                                onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                            />
+                            <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                                Used by client to exchange for a JWT Bearer token via <code>POST /api/login</code>.
+                            </span>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        <div className="form-group">
                             <label className="label">Custom ID (Optional)</label>
                             <input
                                 type="text"
@@ -230,9 +262,7 @@ export default function ConsumerFormPage() {
                                 Map to your internal database ID or OAuth client ID.
                             </span>
                         </div>
-                    </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                         <div className="form-group">
                             <label className="label">Consumer Group (Rate Limit &amp; Tier Policy)</label>
                             <select
@@ -247,8 +277,13 @@ export default function ConsumerFormPage() {
                                     </option>
                                 ))}
                             </select>
+                            <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                                Assign a rate limit group and quota tier to this consumer.
+                            </span>
                         </div>
+                    </div>
 
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                         <div className="form-group">
                             <label className="label">Status</label>
                             <select
@@ -260,6 +295,27 @@ export default function ConsumerFormPage() {
                                 <option value="suspended">Suspended (Blocked)</option>
                                 <option value="revoked">Revoked (Decommissioned)</option>
                             </select>
+                            <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                                Controls access state. Suspended or revoked consumers are blocked at the gateway.
+                            </span>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="label">Effective Rate Limit Tier</label>
+                            <input
+                                type="text"
+                                className="input"
+                                disabled
+                                value={
+                                    groups.find(g => g.id === formData.group_id)
+                                        ? `${groups.find(g => g.id === formData.group_id)?.rate_limit_rpm} RPM (${groups.find(g => g.id === formData.group_id)?.name})`
+                                        : 'Default Gateway Rate Limits (Global Tier)'
+                                }
+                                style={{ background: '#f8fafc', color: '#475569', cursor: 'default' }}
+                            />
+                            <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                                Calculated rate limit quota automatically applied across all routes.
+                            </span>
                         </div>
                     </div>
 
@@ -276,12 +332,12 @@ export default function ConsumerFormPage() {
                 </div>
 
                 {!isEdit && (
-                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                         <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                            2. Authentication Credentials
+                            Authentication Credentials
                         </h2>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: formData.generate_key_now ? '18px' : '0' }}>
                             <input
                                 type="checkbox"
                                 id="gen-key"
@@ -295,15 +351,34 @@ export default function ConsumerFormPage() {
                         </div>
 
                         {formData.generate_key_now && (
-                            <div className="form-group" style={{ maxWidth: '400px', marginLeft: '24px' }}>
-                                <label className="label">Key Description / Label</label>
-                                <input
-                                    type="text"
-                                    className="input"
-                                    value={formData.key_name}
-                                    onChange={e => setFormData(prev => ({ ...prev, key_name: e.target.value }))}
-                                    placeholder="e.g. Primary Production API Key"
-                                />
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div className="form-group">
+                                    <label className="label">Key Description / Label</label>
+                                    <input
+                                        type="text"
+                                        className="input"
+                                        value={formData.key_name}
+                                        onChange={e => setFormData(prev => ({ ...prev, key_name: e.target.value }))}
+                                        placeholder="e.g. Primary Production API Key"
+                                    />
+                                    <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                                        Friendly label to identify this credential in the API keys list.
+                                    </span>
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="label">Key Delivery Mode</label>
+                                    <input
+                                        type="text"
+                                        className="input"
+                                        value="Auto-generated Secret (One-time Reveal)"
+                                        disabled
+                                        style={{ background: '#f8fafc', color: '#475569', cursor: 'default' }}
+                                    />
+                                    <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                                        A cryptographically secure key will be generated and shown once upon registration.
+                                    </span>
+                                </div>
                             </div>
                         )}
                     </div>
