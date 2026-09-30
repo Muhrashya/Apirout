@@ -11,7 +11,7 @@ import {
 interface User {
     id: string;
     email: string;
-    role: 'SUPER_ADMIN' | 'ADMIN' | 'MEMBER' | string;
+    role: 'SUPER_ADMIN' | 'ADMIN' | 'DEVELOPER' | 'MAINTAINER' | string;
     created_at: string;
 }
 
@@ -82,7 +82,6 @@ export default function Users() {
     const adminCount = users.filter(u => u.role === 'ADMIN').length;
     const developerCount = users.filter(u => u.role === 'DEVELOPER').length;
     const maintainerCount = users.filter(u => u.role === 'MAINTAINER').length;
-    const memberCount = users.filter(u => u.role === 'MEMBER').length;
 
     const getRoleBadgeStyle = (role: string) => {
         switch (role) {
@@ -94,8 +93,6 @@ export default function Users() {
                 return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', label: 'Developer' };
             case 'MAINTAINER':
                 return { bg: '#fffbeb', color: '#b45309', border: '#fde68a', label: 'Maintainer' };
-            case 'MEMBER':
-                return { bg: '#f8fafc', color: '#475569', border: '#e2e8f0', label: 'Member' };
             default:
                 return { bg: '#f8fafc', color: '#475569', border: '#e2e8f0', label: role };
         }
@@ -179,12 +176,6 @@ export default function Users() {
                     <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{maintainerCount}</div>
                     <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>SRE &amp; upstreams / TLS</span>
                 </div>
-
-                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
-                    <div style={{ fontSize: '12px', color: '#475569', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Members</div>
-                    <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{memberCount}</div>
-                    <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>Standard portal viewers</span>
-                </div>
             </div>
 
             {/* Filter and Search Bar */}
@@ -223,7 +214,6 @@ export default function Users() {
                             <option value="ADMIN">Admins</option>
                             <option value="DEVELOPER">Developers</option>
                             <option value="MAINTAINER">Maintainers</option>
-                            <option value="MEMBER">Members</option>
                         </select>
                     </div>
 

@@ -13,7 +13,7 @@ export interface GroupMembership {
     can_view_audit_logs: boolean;
 }
 
-export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'DEVELOPER' | 'MAINTAINER' | 'MEMBER' | string;
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'DEVELOPER' | 'MAINTAINER' | string;
 
 export interface User {
     id: string;

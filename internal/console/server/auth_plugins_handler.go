@@ -239,9 +239,9 @@ func (h *AuthPluginsHandler) GetOutboundAuth(w http.ResponseWriter, r *http.Requ
 
 // SetOutboundAuthRequest represents payload for setting outbound auth
 type SetOutboundAuthRequest struct {
-	AuthType string                 `json:"auth_type"`
-	Config   map[string]interface{} `json:"config"`
-	Enabled  bool                   `json:"enabled"`
+	AuthType string          `json:"auth_type"`
+	Config   json.RawMessage `json:"config"`
+	Enabled  bool            `json:"enabled"`
 }
 
 // SetOutboundAuth configures or updates upstream authentication for a service
@@ -272,8 +272,16 @@ func (h *AuthPluginsHandler) SetOutboundAuth(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if req.Config == nil {
-		req.Config = make(map[string]interface{})
+	configMap := make(map[string]interface{})
+	if len(req.Config) > 0 {
+		// First try unmarshaling as map
+		if err := json.Unmarshal(req.Config, &configMap); err != nil {
+			// If not a direct map, try unmarshaling as a JSON string
+			var configStr string
+			if strErr := json.Unmarshal(req.Config, &configStr); strErr == nil && configStr != "" {
+				_ = json.Unmarshal([]byte(configStr), &configMap)
+			}
+		}
 	}
 
 	// Load existing outbound auth to preserve existing encrypted credentials if not modified
@@ -286,84 +294,84 @@ func (h *AuthPluginsHandler) SetOutboundAuth(w http.ResponseWriter, r *http.Requ
 	// Encrypt sensitive fields based on auth_type
 	switch req.AuthType {
 	case models.OutboundBasic:
-		if pass, ok := req.Config["password"].(string); ok && pass != "" {
+		if pass, ok := configMap["password"].(string); ok && pass != "" {
 			enc, err := crypto.EncryptPassword(h.encryptionKey, pass)
 			if err != nil {
 				httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to encrypt password: "+err.Error())
 				return
 			}
-			req.Config["password_encrypted"] = enc
-			delete(req.Config, "password")
+			configMap["password_encrypted"] = enc
+			delete(configMap, "password")
 		} else if existingConfig != nil && existingConfig["password_encrypted"] != nil {
-			req.Config["password_encrypted"] = existingConfig["password_encrypted"]
+			configMap["password_encrypted"] = existingConfig["password_encrypted"]
 		}
 
 	case models.OutboundBearer:
-		if token, ok := req.Config["token"].(string); ok && token != "" {
+		if token, ok := configMap["token"].(string); ok && token != "" {
 			enc, err := crypto.EncryptPassword(h.encryptionKey, token)
 			if err != nil {
 				httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to encrypt token: "+err.Error())
 				return
 			}
-			req.Config["token_encrypted"] = enc
-			delete(req.Config, "token")
+			configMap["token_encrypted"] = enc
+			delete(configMap, "token")
 		} else if existingConfig != nil && existingConfig["token_encrypted"] != nil {
-			req.Config["token_encrypted"] = existingConfig["token_encrypted"]
+			configMap["token_encrypted"] = existingConfig["token_encrypted"]
 		}
 
 	case models.OutboundAPIKey:
-		if key, ok := req.Config["key"].(string); ok && key != "" {
+		if key, ok := configMap["key"].(string); ok && key != "" {
 			enc, err := crypto.EncryptPassword(h.encryptionKey, key)
 			if err != nil {
 				httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to encrypt api key: "+err.Error())
 				return
 			}
-			req.Config["key_encrypted"] = enc
-			delete(req.Config, "key")
+			configMap["key_encrypted"] = enc
+			delete(configMap, "key")
 		} else if existingConfig != nil && existingConfig["key_encrypted"] != nil {
-			req.Config["key_encrypted"] = existingConfig["key_encrypted"]
+			configMap["key_encrypted"] = existingConfig["key_encrypted"]
 		}
 
 	case models.OutboundAWSSigV4:
-		if accessKey, ok := req.Config["access_key"].(string); ok && accessKey != "" {
+		if accessKey, ok := configMap["access_key"].(string); ok && accessKey != "" {
 			enc, err := crypto.EncryptPassword(h.encryptionKey, accessKey)
 			if err != nil {
 				httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to encrypt access key: "+err.Error())
 				return
 			}
-			req.Config["access_key_encrypted"] = enc
-			delete(req.Config, "access_key")
+			configMap["access_key_encrypted"] = enc
+			delete(configMap, "access_key")
 		} else if existingConfig != nil && existingConfig["access_key_encrypted"] != nil {
-			req.Config["access_key_encrypted"] = existingConfig["access_key_encrypted"]
+			configMap["access_key_encrypted"] = existingConfig["access_key_encrypted"]
 		}
 
-		if secretKey, ok := req.Config["secret_key"].(string); ok && secretKey != "" {
+		if secretKey, ok := configMap["secret_key"].(string); ok && secretKey != "" {
 			enc, err := crypto.EncryptPassword(h.encryptionKey, secretKey)
 			if err != nil {
 				httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to encrypt secret key: "+err.Error())
 				return
 			}
-			req.Config["secret_key_encrypted"] = enc
-			delete(req.Config, "secret_key")
+			configMap["secret_key_encrypted"] = enc
+			delete(configMap, "secret_key")
 		} else if existingConfig != nil && existingConfig["secret_key_encrypted"] != nil {
-			req.Config["secret_key_encrypted"] = existingConfig["secret_key_encrypted"]
+			configMap["secret_key_encrypted"] = existingConfig["secret_key_encrypted"]
 		}
 
 	case models.OutboundOAuth2CC:
-		if secret, ok := req.Config["client_secret"].(string); ok && secret != "" {
+		if secret, ok := configMap["client_secret"].(string); ok && secret != "" {
 			enc, err := crypto.EncryptPassword(h.encryptionKey, secret)
 			if err != nil {
 				httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to encrypt client secret: "+err.Error())
 				return
 			}
-			req.Config["client_secret_encrypted"] = enc
-			delete(req.Config, "client_secret")
+			configMap["client_secret_encrypted"] = enc
+			delete(configMap, "client_secret")
 		} else if existingConfig != nil && existingConfig["client_secret_encrypted"] != nil {
-			req.Config["client_secret_encrypted"] = existingConfig["client_secret_encrypted"]
+			configMap["client_secret_encrypted"] = existingConfig["client_secret_encrypted"]
 		}
 	}
 
-	configBytes, err := json.Marshal(req.Config)
+	configBytes, err := json.Marshal(configMap)
 	if err != nil {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to marshal config: "+err.Error())
 		return

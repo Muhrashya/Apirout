@@ -305,7 +305,7 @@ export interface ServiceOutboundAuth {
     id?: string;
     service_id: string;
     auth_type: string;
-    config: string;
+    config: string | Record<string, any>;
     enabled: boolean;
     created_at?: string;
     updated_at?: string;

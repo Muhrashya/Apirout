@@ -82,13 +82,13 @@ export default function AppLayout() {
         : roleUpper === 'ADMIN' ? 'admin'
         : roleUpper === 'DEVELOPER' ? 'developer'
         : roleUpper === 'MAINTAINER' ? 'maintainer'
-        : 'member';
+        : 'developer';
 
     const roleLabel = roleUpper === 'SUPER_ADMIN' ? 'Super Admin'
         : roleUpper === 'ADMIN' ? 'Admin'
         : roleUpper === 'DEVELOPER' ? 'Developer'
         : roleUpper === 'MAINTAINER' ? 'Maintainer'
-        : 'Member';
+        : 'Developer';
 
     // Calculate avatar initials
     const initials = user?.email

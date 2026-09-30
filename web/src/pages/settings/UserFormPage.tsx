@@ -17,7 +17,7 @@ export default function UserFormPage() {
     const [form, setForm] = useState({
         email: '',
         password: '',
-        role: 'DEVELOPER' as 'SUPER_ADMIN' | 'ADMIN' | 'DEVELOPER' | 'MAINTAINER' | 'MEMBER',
+        role: 'DEVELOPER' as 'SUPER_ADMIN' | 'ADMIN' | 'DEVELOPER' | 'MAINTAINER',
     });
 
     useEffect(() => {
@@ -194,7 +194,6 @@ export default function UserFormPage() {
                                 <option value="MAINTAINER">Maintainer (SRE, Upstreams &amp; TLS)</option>
                                 <option value="ADMIN">Admin (Gateway &amp; Services Manager)</option>
                                 <option value="SUPER_ADMIN">Super Admin (Full Root System Privileges)</option>
-                                <option value="MEMBER">Member (Read-only Viewer)</option>
                             </select>
                             <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
                                 Dictates which sections, API keys, and administrative operations this user can access.
@@ -214,9 +213,7 @@ export default function UserFormPage() {
                                             ? 'Tier 2 - Gateway Operations & Service Configurator'
                                             : form.role === 'DEVELOPER'
                                                 ? 'Tier 3 - API Builder & SQL Developer'
-                                                : form.role === 'MAINTAINER'
-                                                    ? 'Tier 3 - SRE / DevOps & Infrastructure Maintainer'
-                                                    : 'Tier 4 - Read-Only Observer'
+                                                : 'Tier 3 - SRE / DevOps & Infrastructure Maintainer'
                                 }
                                 style={{ background: '#f8fafc', color: '#475569', cursor: 'default' }}
                             />
@@ -260,14 +257,6 @@ export default function UserFormPage() {
                                 bg: '#fffbeb',
                                 border: '#fde68a',
                                 desc: 'SRE & DevOps: manages upstreams, targets, health checks, domain certificates, and traffic telemetry.'
-                            },
-                            {
-                                id: 'MEMBER',
-                                title: 'Member',
-                                color: '#475569',
-                                bg: '#f8fafc',
-                                border: '#e2e8f0',
-                                desc: 'Read-only observer: views traffic charts, request logs, and inspects route configurations.'
                             }
                         ].map(r => {
                             const isSelected = form.role === r.id;

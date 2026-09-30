@@ -178,7 +178,7 @@ export default function ServiceFormPage() {
                 if (outboundAuth.enabled && outboundAuth.auth_type) {
                     await gatewayApi.setOutboundAuth(serviceId, {
                         auth_type: outboundAuth.auth_type,
-                        config: JSON.stringify(outboundAuth.config),
+                        config: outboundAuth.config as any,
                         enabled: true
                     });
                 } else if (isEdit) {

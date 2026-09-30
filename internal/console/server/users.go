@@ -59,7 +59,7 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Validate role
 	if !auth.IsValidRole(req.Role) {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid role. Must be SUPER_ADMIN, ADMIN, DEVELOPER, MAINTAINER, or MEMBER")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid role. Must be SUPER_ADMIN, ADMIN, DEVELOPER, or MAINTAINER")
 		return
 	}
 
@@ -96,7 +96,7 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	req.Role = strings.ToUpper(strings.TrimSpace(req.Role))
 	if req.Role != "" && !auth.IsValidRole(req.Role) {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid role. Must be SUPER_ADMIN, ADMIN, DEVELOPER, MAINTAINER, or MEMBER")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid role. Must be SUPER_ADMIN, ADMIN, DEVELOPER, or MAINTAINER")
 		return
 	}
 

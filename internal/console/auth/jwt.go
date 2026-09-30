@@ -23,13 +23,12 @@ const (
 	RoleAdmin      = "ADMIN"
 	RoleDeveloper  = "DEVELOPER"
 	RoleMaintainer = "MAINTAINER"
-	RoleMember     = "MEMBER" // Legacy / viewer fallback
 )
 
 // IsValidRole validates if a given role string is recognized
 func IsValidRole(role string) bool {
 	switch strings.ToUpper(strings.TrimSpace(role)) {
-	case RoleSuperAdmin, RoleAdmin, RoleDeveloper, RoleMaintainer, RoleMember:
+	case RoleSuperAdmin, RoleAdmin, RoleDeveloper, RoleMaintainer:
 		return true
 	default:
 		return false
