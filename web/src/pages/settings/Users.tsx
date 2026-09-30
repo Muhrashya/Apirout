@@ -80,6 +80,8 @@ export default function Users() {
 
     const superAdminCount = users.filter(u => u.role === 'SUPER_ADMIN').length;
     const adminCount = users.filter(u => u.role === 'ADMIN').length;
+    const developerCount = users.filter(u => u.role === 'DEVELOPER').length;
+    const maintainerCount = users.filter(u => u.role === 'MAINTAINER').length;
     const memberCount = users.filter(u => u.role === 'MEMBER').length;
 
     const getRoleBadgeStyle = (role: string) => {
@@ -88,6 +90,10 @@ export default function Users() {
                 return { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca', label: 'Super Admin' };
             case 'ADMIN':
                 return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', label: 'Admin' };
+            case 'DEVELOPER':
+                return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', label: 'Developer' };
+            case 'MAINTAINER':
+                return { bg: '#fffbeb', color: '#b45309', border: '#fde68a', label: 'Maintainer' };
             case 'MEMBER':
                 return { bg: '#f8fafc', color: '#475569', border: '#e2e8f0', label: 'Member' };
             default:
@@ -118,7 +124,7 @@ export default function Users() {
                 <div className="overview-title-col">
                     <h1 className="overview-title">Users &amp; Accounts</h1>
                     <p className="overview-subtitle">
-                        Manage platform administrators and member credentials for console administration.
+                        Manage platform administrators, developers, maintainers, and viewer accounts for console administration.
                     </p>
                 </div>
 
@@ -143,29 +149,41 @@ export default function Users() {
             </div>
 
             {/* Stat Summary Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
-                    <div style={{ fontSize: '12.5px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Total Accounts</div>
-                    <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{users.length}</div>
-                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>Registered console users</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                    <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Total Accounts</div>
+                    <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{users.length}</div>
+                    <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>All registered users</span>
                 </div>
 
-                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
-                    <div style={{ fontSize: '12.5px', color: '#b91c1c', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Super Admins</div>
-                    <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{superAdminCount}</div>
-                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>Full root system privileges</span>
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                    <div style={{ fontSize: '12px', color: '#b91c1c', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Super Admins</div>
+                    <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{superAdminCount}</div>
+                    <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>Full root system control</span>
                 </div>
 
-                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
-                    <div style={{ fontSize: '12.5px', color: '#1d4ed8', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Admins</div>
-                    <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{adminCount}</div>
-                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>Gateway & service managers</span>
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                    <div style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Admins</div>
+                    <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{adminCount}</div>
+                    <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>Gateway &amp; operations</span>
                 </div>
 
-                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
-                    <div style={{ fontSize: '12.5px', color: '#475569', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Members</div>
-                    <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{memberCount}</div>
-                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>Standard portal viewers</span>
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                    <div style={{ fontSize: '12px', color: '#15803d', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Developers</div>
+                    <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{developerCount}</div>
+                    <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>API builder &amp; queries</span>
+                </div>
+
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                    <div style={{ fontSize: '12px', color: '#b45309', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Maintainers</div>
+                    <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{maintainerCount}</div>
+                    <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>SRE &amp; upstreams / TLS</span>
+                </div>
+
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                    <div style={{ fontSize: '12px', color: '#475569', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Members</div>
+                    <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{memberCount}</div>
+                    <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>Standard portal viewers</span>
                 </div>
             </div>
 
@@ -203,6 +221,8 @@ export default function Users() {
                             <option value="ALL">All Roles</option>
                             <option value="SUPER_ADMIN">Super Admins</option>
                             <option value="ADMIN">Admins</option>
+                            <option value="DEVELOPER">Developers</option>
+                            <option value="MAINTAINER">Maintainers</option>
                             <option value="MEMBER">Members</option>
                         </select>
                     </div>

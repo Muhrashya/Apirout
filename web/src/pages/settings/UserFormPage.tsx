@@ -17,7 +17,7 @@ export default function UserFormPage() {
     const [form, setForm] = useState({
         email: '',
         password: '',
-        role: 'MEMBER' as 'SUPER_ADMIN' | 'ADMIN' | 'MEMBER',
+        role: 'DEVELOPER' as 'SUPER_ADMIN' | 'ADMIN' | 'DEVELOPER' | 'MAINTAINER' | 'MEMBER',
     });
 
     useEffect(() => {
@@ -36,7 +36,7 @@ export default function UserFormPage() {
                 setForm({
                     email: target.email || '',
                     password: '',
-                    role: target.role || 'MEMBER',
+                    role: target.role || 'DEVELOPER',
                 });
             } else {
                 toast.error('User not found');
@@ -115,7 +115,7 @@ export default function UserFormPage() {
                 <div className="overview-title-col">
                     <h1 className="overview-title">{isEdit ? 'Edit Console User' : 'New Console User'}</h1>
                     <p className="overview-subtitle">
-                        Manage platform administrators, gateway operators, and viewer credentials for dashboard administration.
+                        Manage platform administrators, gateway operators, developers, and maintainer credentials for dashboard administration.
                     </p>
                 </div>
                 <div className="overview-header-actions">
@@ -190,9 +190,11 @@ export default function UserFormPage() {
                                 value={form.role}
                                 onChange={e => setForm(prev => ({ ...prev, role: e.target.value as any }))}
                             >
-                                <option value="MEMBER">Member (Read-only Viewer)</option>
+                                <option value="DEVELOPER">Developer (API Builder &amp; SQL Queries)</option>
+                                <option value="MAINTAINER">Maintainer (SRE, Upstreams &amp; TLS)</option>
                                 <option value="ADMIN">Admin (Gateway &amp; Services Manager)</option>
                                 <option value="SUPER_ADMIN">Super Admin (Full Root System Privileges)</option>
+                                <option value="MEMBER">Member (Read-only Viewer)</option>
                             </select>
                             <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
                                 Dictates which sections, API keys, and administrative operations this user can access.
@@ -210,7 +212,11 @@ export default function UserFormPage() {
                                         ? 'Tier 1 - Full Root System Administrator'
                                         : form.role === 'ADMIN'
                                             ? 'Tier 2 - Gateway Operations & Service Configurator'
-                                            : 'Tier 3 - Read-Only Observer'
+                                            : form.role === 'DEVELOPER'
+                                                ? 'Tier 3 - API Builder & SQL Developer'
+                                                : form.role === 'MAINTAINER'
+                                                    ? 'Tier 3 - SRE / DevOps & Infrastructure Maintainer'
+                                                    : 'Tier 4 - Read-Only Observer'
                                 }
                                 style={{ background: '#f8fafc', color: '#475569', cursor: 'default' }}
                             />
@@ -221,7 +227,7 @@ export default function UserFormPage() {
                     </div>
 
                     {/* Visual Role Privilege Cards */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                         {[
                             {
                                 id: 'SUPER_ADMIN',
@@ -238,6 +244,22 @@ export default function UserFormPage() {
                                 bg: '#eff6ff',
                                 border: '#bfdbfe',
                                 desc: 'Operational control: manages routes, services, upstreams, consumers, and database instant APIs.'
+                            },
+                            {
+                                id: 'DEVELOPER',
+                                title: 'Developer',
+                                color: '#16a34a',
+                                bg: '#f0fdf4',
+                                border: '#bbf7d0',
+                                desc: 'API Builder: creates routes, instant APIs, SQL queries & preview, and tests client keys.'
+                            },
+                            {
+                                id: 'MAINTAINER',
+                                title: 'Maintainer',
+                                color: '#d97706',
+                                bg: '#fffbeb',
+                                border: '#fde68a',
+                                desc: 'SRE & DevOps: manages upstreams, targets, health checks, domain certificates, and traffic telemetry.'
                             },
                             {
                                 id: 'MEMBER',

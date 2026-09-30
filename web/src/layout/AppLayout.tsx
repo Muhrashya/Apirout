@@ -11,7 +11,19 @@ import {
 import './AppLayout.css';
 
 export default function AppLayout() {
-    const { user, logout, canManageEndpoints } = useAuth();
+    const {
+        user,
+        logout,
+        isSuperAdmin,
+        isAdmin,
+        isDeveloper,
+        isMaintainer,
+        canAccessUpstreams,
+        canAccessQueries,
+        canAccessInstantApi,
+        canAccessDomains,
+        canManageUsers,
+    } = useAuth();
     const { branding } = useBranding();
     const navigate = useNavigate();
     const location = useLocation();
@@ -65,7 +77,18 @@ export default function AppLayout() {
         navigate('/login');
     };
 
-    const canAccessSettings = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || canManageEndpoints();
+    const roleUpper = (user?.role || '').toUpperCase();
+    const roleClass = roleUpper === 'SUPER_ADMIN' ? 'super-admin'
+        : roleUpper === 'ADMIN' ? 'admin'
+        : roleUpper === 'DEVELOPER' ? 'developer'
+        : roleUpper === 'MAINTAINER' ? 'maintainer'
+        : 'member';
+
+    const roleLabel = roleUpper === 'SUPER_ADMIN' ? 'Super Admin'
+        : roleUpper === 'ADMIN' ? 'Admin'
+        : roleUpper === 'DEVELOPER' ? 'Developer'
+        : roleUpper === 'MAINTAINER' ? 'Maintainer'
+        : 'Member';
 
     // Calculate avatar initials
     const initials = user?.email
@@ -115,8 +138,8 @@ export default function AppLayout() {
                                         <div className="user-dropdown-email" title={user?.email}>
                                             {user?.email}
                                         </div>
-                                        <span className={`user-dropdown-badge ${user?.role === 'SUPER_ADMIN' ? 'super-admin' : user?.role === 'ADMIN' ? 'admin' : 'member'}`}>
-                                            {user?.role === 'SUPER_ADMIN' ? 'Super Admin' : user?.role === 'ADMIN' ? 'Admin' : 'Member'}
+                                        <span className={`user-dropdown-badge ${roleClass}`}>
+                                            {roleLabel}
                                         </span>
                                     </div>
                                 </div>
@@ -166,42 +189,50 @@ export default function AppLayout() {
                                     <span>Back to Gateway</span>
                                 </NavLink>
 
-                                {canAccessSettings && (
+                                {(isSuperAdmin || isAdmin || isDeveloper || isMaintainer) && (
                                     <div className="nav-group-section">
                                         <div className="nav-group-title">ADMIN CONSOLE</div>
                                         <ul className="nav-list">
-                                            <li>
-                                                <NavLink to="/settings/connections" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-                                                    <span className="nav-icon"><IconDatabase width={18} height={18} /></span>
-                                                    <span className="nav-label">Database Sources</span>
-                                                </NavLink>
-                                            </li>
-                                            <li>
-                                                <NavLink to="/settings/domains" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-                                                    <span className="nav-icon"><IconCloud width={18} height={18} /></span>
-                                                    <span className="nav-label">Domains & TLS</span>
-                                                </NavLink>
-                                            </li>
-                                            <li>
-                                                <NavLink to="/settings/branding" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-                                                    <span className="nav-icon"><IconPalette width={18} height={18} /></span>
-                                                    <span className="nav-label">Customization</span>
-                                                </NavLink>
-                                            </li>
-                                            <li>
-                                                <NavLink to="/settings/collections" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-                                                    <span className="nav-icon"><IconCollection width={18} height={18} /></span>
-                                                    <span className="nav-label">API Collections</span>
-                                                </NavLink>
-                                            </li>
+                                            {(isSuperAdmin || isAdmin || isDeveloper) && (
+                                                <li>
+                                                    <NavLink to="/settings/connections" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+                                                        <span className="nav-icon"><IconDatabase width={18} height={18} /></span>
+                                                        <span className="nav-label">Database Sources</span>
+                                                    </NavLink>
+                                                </li>
+                                            )}
+                                            {canAccessDomains() && (
+                                                <li>
+                                                    <NavLink to="/settings/domains" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+                                                        <span className="nav-icon"><IconCloud width={18} height={18} /></span>
+                                                        <span className="nav-label">Domains &amp; TLS</span>
+                                                    </NavLink>
+                                                </li>
+                                            )}
+                                            {(isSuperAdmin || isAdmin) && (
+                                                <li>
+                                                    <NavLink to="/settings/branding" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+                                                        <span className="nav-icon"><IconPalette width={18} height={18} /></span>
+                                                        <span className="nav-label">Customization</span>
+                                                    </NavLink>
+                                                </li>
+                                            )}
+                                            {(isSuperAdmin || isAdmin || isDeveloper) && (
+                                                <li>
+                                                    <NavLink to="/settings/collections" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+                                                        <span className="nav-icon"><IconCollection width={18} height={18} /></span>
+                                                        <span className="nav-label">API Collections</span>
+                                                    </NavLink>
+                                                </li>
+                                            )}
                                         </ul>
                                     </div>
                                 )}
 
                                 <div className="nav-group-section">
-                                    <div className="nav-group-title">ACCESS & SECURITY</div>
+                                    <div className="nav-group-title">ACCESS &amp; SECURITY</div>
                                     <ul className="nav-list">
-                                        {canAccessSettings && (
+                                        {canManageUsers() && (
                                             <li>
                                                 <NavLink to="/settings/users" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
                                                     <span className="nav-icon"><IconUser width={18} height={18} /></span>
@@ -212,13 +243,13 @@ export default function AppLayout() {
                                         <li>
                                             <NavLink to="/settings/profile" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
                                                 <span className="nav-icon"><IconKey width={18} height={18} /></span>
-                                                <span className="nav-label">Profile & Password</span>
+                                                <span className="nav-label">Profile &amp; Password</span>
                                             </NavLink>
                                         </li>
                                     </ul>
                                 </div>
 
-                                {canAccessSettings && (
+                                {(isSuperAdmin || isAdmin || isMaintainer) && (
                                     <div className="nav-group-section">
                                         <div className="nav-group-title">AUDIT TRAIL</div>
                                         <ul className="nav-list">
@@ -256,24 +287,28 @@ export default function AppLayout() {
                                                 <span className="nav-label">Routes</span>
                                             </NavLink>
                                         </li>
-                                        <li>
-                                            <NavLink
-                                                to="/services"
-                                                className={({ isActive }) => isActive || location.pathname.startsWith('/services') ? 'nav-link active' : 'nav-link'}
-                                            >
-                                                <span className="nav-icon"><IconServices width={18} height={18} /></span>
-                                                <span className="nav-label">Services</span>
-                                            </NavLink>
-                                        </li>
-                                        <li>
-                                            <NavLink
-                                                to="/upstreams"
-                                                className={({ isActive }) => isActive || location.pathname.startsWith('/upstreams') ? 'nav-link active' : 'nav-link'}
-                                            >
-                                                <span className="nav-icon"><IconUpstreams width={18} height={18} /></span>
-                                                <span className="nav-label">Upstreams</span>
-                                            </NavLink>
-                                        </li>
+                                        {(isSuperAdmin || isAdmin || isMaintainer) && (
+                                            <li>
+                                                <NavLink
+                                                    to="/services"
+                                                    className={({ isActive }) => isActive || location.pathname.startsWith('/services') ? 'nav-link active' : 'nav-link'}
+                                                >
+                                                    <span className="nav-icon"><IconServices width={18} height={18} /></span>
+                                                    <span className="nav-label">Services</span>
+                                                </NavLink>
+                                            </li>
+                                        )}
+                                        {canAccessUpstreams() && (
+                                            <li>
+                                                <NavLink
+                                                    to="/upstreams"
+                                                    className={({ isActive }) => isActive || location.pathname.startsWith('/upstreams') ? 'nav-link active' : 'nav-link'}
+                                                >
+                                                    <span className="nav-icon"><IconUpstreams width={18} height={18} /></span>
+                                                    <span className="nav-label">Upstreams</span>
+                                                </NavLink>
+                                            </li>
+                                        )}
                                         <li>
                                             <NavLink
                                                 to="/consumers"
@@ -283,48 +318,56 @@ export default function AppLayout() {
                                                 <span className="nav-label">Consumers</span>
                                             </NavLink>
                                         </li>
-                                        <li>
-                                            <NavLink
-                                                to="/instant-api"
-                                                className={({ isActive }) => isActive || location.pathname.startsWith('/instant-api') ? 'nav-link active' : 'nav-link'}
-                                            >
-                                                <span className="nav-icon"><IconBolt width={18} height={18} /></span>
-                                                <span className="nav-label">Instant API</span>
-                                            </NavLink>
-                                        </li>
-                                        <li>
-                                            <NavLink
-                                                to="/queries"
-                                                className={({ isActive }) => isActive || location.pathname.startsWith('/queries') ? 'nav-link active' : 'nav-link'}
-                                            >
-                                                <span className="nav-icon"><IconQuery width={18} height={18} /></span>
-                                                <span className="nav-label">Queries</span>
-                                            </NavLink>
-                                        </li>
+                                        {canAccessInstantApi() && (
+                                            <li>
+                                                <NavLink
+                                                    to="/instant-api"
+                                                    className={({ isActive }) => isActive || location.pathname.startsWith('/instant-api') ? 'nav-link active' : 'nav-link'}
+                                                >
+                                                    <span className="nav-icon"><IconBolt width={18} height={18} /></span>
+                                                    <span className="nav-label">Instant API</span>
+                                                </NavLink>
+                                            </li>
+                                        )}
+                                        {canAccessQueries() && (
+                                            <li>
+                                                <NavLink
+                                                    to="/queries"
+                                                    className={({ isActive }) => isActive || location.pathname.startsWith('/queries') ? 'nav-link active' : 'nav-link'}
+                                                >
+                                                    <span className="nav-icon"><IconQuery width={18} height={18} /></span>
+                                                    <span className="nav-label">Queries</span>
+                                                </NavLink>
+                                            </li>
+                                        )}
                                     </ul>
                                 </div>
 
                                 <div className="nav-group-section">
                                     <div className="nav-group-title">OBSERVABILITY</div>
                                     <ul className="nav-list">
-                                        <li>
-                                            <NavLink to="/traffic" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-                                                <span className="nav-icon"><IconTraffic width={18} height={18} /></span>
-                                                <span className="nav-label">Traffic</span>
-                                            </NavLink>
-                                        </li>
+                                        {(isSuperAdmin || isAdmin || isMaintainer) && (
+                                            <li>
+                                                <NavLink to="/traffic" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+                                                    <span className="nav-icon"><IconTraffic width={18} height={18} /></span>
+                                                    <span className="nav-label">Traffic</span>
+                                                </NavLink>
+                                            </li>
+                                        )}
                                         <li>
                                             <NavLink to="/logs" className={({ isActive }) => isActive || location.pathname === '/requests' ? 'nav-link active' : 'nav-link'}>
                                                 <span className="nav-icon"><IconFileText width={18} height={18} /></span>
                                                 <span className="nav-label">API Logs</span>
                                             </NavLink>
                                         </li>
-                                        <li>
-                                            <NavLink to="/analytics" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-                                                <span className="nav-icon"><IconChartBar width={18} height={18} /></span>
-                                                <span className="nav-label">Analytics</span>
-                                            </NavLink>
-                                        </li>
+                                        {(isSuperAdmin || isAdmin || isMaintainer) && (
+                                            <li>
+                                                <NavLink to="/analytics" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+                                                    <span className="nav-icon"><IconChartBar width={18} height={18} /></span>
+                                                    <span className="nav-label">Analytics</span>
+                                                </NavLink>
+                                            </li>
+                                        )}
                                     </ul>
                                 </div>
                             </>

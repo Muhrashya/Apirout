@@ -3,7 +3,9 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
+	"github.com/apirout/apirout/internal/console/auth"
 	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/console/registry"
 
@@ -50,13 +52,14 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Role = strings.ToUpper(strings.TrimSpace(req.Role))
 	if req.Role == "" {
-		req.Role = "MEMBER"
+		req.Role = auth.RoleDeveloper
 	}
 
 	// Validate role
-	if req.Role != "SUPER_ADMIN" && req.Role != "ADMIN" && req.Role != "MEMBER" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid role. Must be SUPER_ADMIN, ADMIN, or MEMBER")
+	if !auth.IsValidRole(req.Role) {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid role. Must be SUPER_ADMIN, ADMIN, DEVELOPER, MAINTAINER, or MEMBER")
 		return
 	}
 
@@ -88,6 +91,12 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	if req.Email == "" {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "Email is required")
+		return
+	}
+
+	req.Role = strings.ToUpper(strings.TrimSpace(req.Role))
+	if req.Role != "" && !auth.IsValidRole(req.Role) {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid role. Must be SUPER_ADMIN, ADMIN, DEVELOPER, MAINTAINER, or MEMBER")
 		return
 	}
 

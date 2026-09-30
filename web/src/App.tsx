@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/AuthProvider'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { ProtectedRoute, SettingsGuard } from './routing/guards'
+import { ProtectedRoute, SettingsGuard, RoleRoute } from './routing/guards'
 import AppLayout from './layout/AppLayout'
 import { BrandingProvider } from './context/BrandingContext'
 
@@ -59,28 +59,42 @@ function App() {
                                             <Route path="/overview" element={<Dashboard />} />
                                             <Route path="/dashboard" element={<Navigate to="/overview" replace />} />
 
-                                            {/* Gateway Core Entities (Kong Architecture) */}
+                                            {/* Gateway Routes */}
                                             <Route path="/routes" element={<RoutesPage />} />
-                                            <Route path="/routes/new" element={<RouteFormPage />} />
-                                            <Route path="/routes/:id/edit" element={<RouteFormPage />} />
+                                            <Route element={<RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'DEVELOPER']} />}>
+                                                <Route path="/routes/new" element={<RouteFormPage />} />
+                                                <Route path="/routes/:id/edit" element={<RouteFormPage />} />
+                                            </Route>
                                             <Route path="/endpoints" element={<Navigate to="/routes" replace />} />
 
+                                            {/* Gateway Services */}
                                             <Route path="/services" element={<ServicesPage />} />
-                                            <Route path="/services/new" element={<ServiceFormPage />} />
-                                            <Route path="/services/:id/edit" element={<ServiceFormPage />} />
+                                            <Route element={<RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'MAINTAINER']} />}>
+                                                <Route path="/services/new" element={<ServiceFormPage />} />
+                                                <Route path="/services/:id/edit" element={<ServiceFormPage />} />
+                                            </Route>
 
-                                            <Route path="/upstreams" element={<UpstreamsPage />} />
-                                            <Route path="/upstreams/new" element={<UpstreamFormPage />} />
-                                            <Route path="/upstreams/:id/edit" element={<UpstreamFormPage />} />
-                                            <Route path="/queries" element={<QueriesPage />} />
+                                            {/* Upstreams: Maintainers, Admins, Super Admins only */}
+                                            <Route element={<RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'MAINTAINER']} />}>
+                                                <Route path="/upstreams" element={<UpstreamsPage />} />
+                                                <Route path="/upstreams/new" element={<UpstreamFormPage />} />
+                                                <Route path="/upstreams/:id/edit" element={<UpstreamFormPage />} />
+                                            </Route>
 
+                                            {/* Queries & Instant API: Developers, Admins, Super Admins only */}
+                                            <Route element={<RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'DEVELOPER']} />}>
+                                                <Route path="/queries" element={<QueriesPage />} />
+                                                <Route path="/instant-api" element={<InstantAPI />} />
+                                            </Route>
+
+                                            {/* Consumers */}
                                             <Route path="/consumers" element={<ConsumersPage />} />
-                                            <Route path="/consumers/new" element={<ConsumerFormPage />} />
-                                            <Route path="/consumers/:id/edit" element={<ConsumerFormPage />} />
+                                            <Route element={<RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'DEVELOPER']} />}>
+                                                <Route path="/consumers/new" element={<ConsumerFormPage />} />
+                                                <Route path="/consumers/:id/edit" element={<ConsumerFormPage />} />
+                                            </Route>
 
-                                            <Route path="/instant-api" element={<InstantAPI />} />
-
-                                            {/* Observability (Kong Style) */}
+                                            {/* Observability */}
                                             <Route path="/traffic" element={<Traffic />} />
                                             <Route path="/logs" element={<ApiLogs />} />
                                             <Route path="/requests" element={<Navigate to="/logs" replace />} />
@@ -95,24 +109,39 @@ function App() {
                                             <Route path="/settings" element={<SettingsRedirect />} />
                                             <Route path="/settings/console" element={<SettingsRedirect />} />
                                             <Route element={<SettingsGuard />}>
-                                                <Route path="/settings/connections" element={<Connections />} />
-                                                <Route path="/settings/connections/new" element={<ConnectionFormPage />} />
-                                                <Route path="/settings/connections/:id/edit" element={<ConnectionFormPage />} />
+                                                {/* Connections & Collections: Developer, Admin, Super Admin */}
+                                                <Route element={<RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'DEVELOPER']} />}>
+                                                    <Route path="/settings/connections" element={<Connections />} />
+                                                    <Route path="/settings/connections/new" element={<ConnectionFormPage />} />
+                                                    <Route path="/settings/connections/:id/edit" element={<ConnectionFormPage />} />
+                                                    <Route path="/settings/collections" element={<ApiCollections />} />
+                                                </Route>
 
-                                                <Route path="/settings/domains" element={<Domains />} />
-                                                <Route path="/settings/domains/new" element={<DomainFormPage />} />
-                                                <Route path="/settings/domains/:id/edit" element={<DomainFormPage />} />
+                                                {/* Domains & TLS: Maintainer, Admin, Super Admin */}
+                                                <Route element={<RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'MAINTAINER']} />}>
+                                                    <Route path="/settings/domains" element={<Domains />} />
+                                                    <Route path="/settings/domains/new" element={<DomainFormPage />} />
+                                                    <Route path="/settings/domains/:id/edit" element={<DomainFormPage />} />
+                                                </Route>
 
-                                                <Route path="/settings/branding" element={<BrandingPage />} />
-                                                <Route path="/settings/collections" element={<ApiCollections />} />
-                                                <Route path="/settings/api-clients" element={<ApiClients />} />
+                                                {/* Branding: Admin, Super Admin */}
+                                                <Route element={<RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN']} />}>
+                                                    <Route path="/settings/branding" element={<BrandingPage />} />
+                                                </Route>
+
+                                                {/* Activity Audit Logs: Maintainer, Admin, Super Admin */}
+                                                <Route element={<RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'MAINTAINER']} />}>
+                                                    <Route path="/settings/activity-logs" element={<ActivityLogs />} />
+                                                </Route>
+
+                                                {/* Users & Api-clients: Root Super Admin only */}
+                                                <Route element={<RoleRoute allowedRoles={['SUPER_ADMIN']} />}>
+                                                    <Route path="/settings/users" element={<Users />} />
+                                                    <Route path="/settings/users/new" element={<UserFormPage />} />
+                                                    <Route path="/settings/users/:id/edit" element={<UserFormPage />} />
+                                                    <Route path="/settings/api-clients" element={<ApiClients />} />
+                                                </Route>
                                                 <Route path="/settings/groups" element={<Navigate to="/settings/users" replace />} />
-
-                                                <Route path="/settings/users" element={<Users />} />
-                                                <Route path="/settings/users/new" element={<UserFormPage />} />
-                                                <Route path="/settings/users/:id/edit" element={<UserFormPage />} />
-
-                                                <Route path="/settings/activity-logs" element={<ActivityLogs />} />
                                             </Route>
                                         </Route>
                                     </Route>
@@ -130,9 +159,18 @@ function App() {
 }
 
 function SettingsRedirect() {
-    const { user, canManageEndpoints } = useAuth()
-    const canAccessSettings = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || canManageEndpoints()
-    return <Navigate to={canAccessSettings ? "/settings/connections" : "/settings/profile"} replace />
+    const { user } = useAuth()
+    const role = (user?.role || '').toUpperCase()
+    if (role === 'SUPER_ADMIN') {
+        return <Navigate to="/settings/users" replace />
+    }
+    if (role === 'ADMIN' || role === 'DEVELOPER') {
+        return <Navigate to="/settings/connections" replace />
+    }
+    if (role === 'MAINTAINER') {
+        return <Navigate to="/settings/domains" replace />
+    }
+    return <Navigate to="/settings/profile" replace />
 }
 
 function RootRedirect() {

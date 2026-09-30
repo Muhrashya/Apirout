@@ -25,16 +25,45 @@ export function SettingsGuard() {
     const { user, canManageEndpoints } = useAuth();
     const toast = useToast();
 
-    const hasAccess = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || canManageEndpoints();
+    const roleUpper = (user?.role || '').toUpperCase();
+    const hasAccess = roleUpper === 'SUPER_ADMIN' || roleUpper === 'ADMIN' || roleUpper === 'MAINTAINER' || roleUpper === 'DEVELOPER' || canManageEndpoints();
 
     useEffect(() => {
-        if (!hasAccess) {
+        if (!hasAccess && user) {
             toast.error('No permission to access Settings');
         }
-    }, [hasAccess, toast]);
+    }, [hasAccess, user, toast]);
 
     if (!hasAccess) {
-        return <Navigate to="/dashboard" replace />;
+        return <Navigate to="/overview" replace />;
+    }
+
+    return <Outlet />;
+}
+
+export function RoleRoute({ allowedRoles, fallback = "/overview" }: { allowedRoles: string[]; fallback?: string }) {
+    const { user, isLoading } = useAuth();
+    const toast = useToast();
+
+    if (isLoading) {
+        return (
+            <div className="loading" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="spinner"></div>
+            </div>
+        );
+    }
+
+    const roleUpper = (user?.role || '').toUpperCase();
+    const hasAccess = !!user && allowedRoles.includes(roleUpper);
+
+    useEffect(() => {
+        if (!hasAccess && user) {
+            toast.error(`Access restricted for role "${user.role}"`);
+        }
+    }, [hasAccess, user, toast]);
+
+    if (!hasAccess) {
+        return <Navigate to={fallback} replace />;
     }
 
     return <Outlet />;

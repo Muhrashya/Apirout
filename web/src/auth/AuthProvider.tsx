@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { apiClient, setToken, clearToken, hasToken } from '../api/apiClient';
 
-interface GroupMembership {
+export interface GroupMembership {
     group_id: string;
     group_name: string;
     can_manage_connections: boolean;
@@ -13,22 +13,33 @@ interface GroupMembership {
     can_view_audit_logs: boolean;
 }
 
-interface User {
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'DEVELOPER' | 'MAINTAINER' | 'MEMBER' | string;
+
+export interface User {
     id: string;
     email: string;
-    role: string;
+    role: UserRole;
     groups?: GroupMembership[];
 }
 
-interface AuthContextType {
+export interface AuthContextType {
     user: User | null;
     isLoading: boolean;
     isAuthenticated: boolean;
+    isSuperAdmin: boolean;
+    isAdmin: boolean;
+    isDeveloper: boolean;
+    isMaintainer: boolean;
     login: (email: string, password: string) => Promise<void>;
     logout: () => void;
     refreshUser: () => Promise<void>;
     canManageEndpoints: () => boolean;
     canManageConnections: () => boolean;
+    canAccessUpstreams: () => boolean;
+    canAccessQueries: () => boolean;
+    canAccessInstantApi: () => boolean;
+    canAccessDomains: () => boolean;
+    canManageUsers: () => boolean;
     getManageableGroups: () => GroupMembership[];
 }
 
@@ -79,29 +90,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
     };
 
-    // Check if user can manage endpoints (publish)
+    // Role booleans
+    const roleUpper = (user?.role || '').toUpperCase();
+    const isSuperAdmin = roleUpper === 'SUPER_ADMIN';
+    const isAdmin = roleUpper === 'ADMIN';
+    const isDeveloper = roleUpper === 'DEVELOPER';
+    const isMaintainer = roleUpper === 'MAINTAINER';
+
+    // Users Management is root only
+    const canManageUsers = (): boolean => isSuperAdmin;
+
+    // Upstreams & Targets control: SRE maintainers, Admins, Super Admins
+    const canAccessUpstreams = (): boolean => isSuperAdmin || isAdmin || isMaintainer;
+
+    // Domains & TLS certificates: Maintainers, Admins, Super Admins
+    const canAccessDomains = (): boolean => isSuperAdmin || isAdmin || isMaintainer;
+
+    // Queries & SQL preview: Developers, Admins, Super Admins
+    const canAccessQueries = (): boolean => isSuperAdmin || isAdmin || isDeveloper;
+
+    // Instant REST API generator: Developers, Admins, Super Admins
+    const canAccessInstantApi = (): boolean => isSuperAdmin || isAdmin || isDeveloper;
+
+    // Check if user can manage endpoints (publish/edit routes)
     const canManageEndpoints = (): boolean => {
         if (!user) return false;
-        if (user.role === 'SUPER_ADMIN') return true;
-        // Check if any group has can_manage_endpoints permission
+        if (isSuperAdmin || isAdmin || isDeveloper) return true;
         return user.groups?.some(g => g.can_manage_endpoints) || false;
     };
 
-    // Check if user can manage connections
+    // Check if user can manage connections (database sources)
     const canManageConnections = (): boolean => {
         if (!user) return false;
-        if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') return true;
+        if (isSuperAdmin || isAdmin) return true;
         return user.groups?.some(g => g.can_manage_connections) || false;
     };
 
     // Get groups where user can manage endpoints
     const getManageableGroups = (): GroupMembership[] => {
         if (!user) return [];
-        if (user.role === 'SUPER_ADMIN') {
-            // SUPER_ADMIN can manage all groups - return all groups user has access to
+        if (isSuperAdmin) {
             return user.groups || [];
         }
-        // Return only groups where can_manage_endpoints is true
         return user.groups?.filter(g => g.can_manage_endpoints) || [];
     };
 
@@ -111,11 +141,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 user,
                 isLoading,
                 isAuthenticated: !!user,
+                isSuperAdmin,
+                isAdmin,
+                isDeveloper,
+                isMaintainer,
                 login,
                 logout,
                 refreshUser,
                 canManageEndpoints,
                 canManageConnections,
+                canAccessUpstreams,
+                canAccessQueries,
+                canAccessInstantApi,
+                canAccessDomains,
+                canManageUsers,
                 getManageableGroups,
             }}
         >

@@ -17,6 +17,48 @@ type contextKey string
 
 const UserContextKey contextKey = "user"
 
+// Standard Role Constants
+const (
+	RoleSuperAdmin = "SUPER_ADMIN"
+	RoleAdmin      = "ADMIN"
+	RoleDeveloper  = "DEVELOPER"
+	RoleMaintainer = "MAINTAINER"
+	RoleMember     = "MEMBER" // Legacy / viewer fallback
+)
+
+// IsValidRole validates if a given role string is recognized
+func IsValidRole(role string) bool {
+	switch strings.ToUpper(strings.TrimSpace(role)) {
+	case RoleSuperAdmin, RoleAdmin, RoleDeveloper, RoleMaintainer, RoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsSuperAdmin checks if role is SUPER_ADMIN
+func IsSuperAdmin(role string) bool {
+	return strings.EqualFold(strings.TrimSpace(role), RoleSuperAdmin)
+}
+
+// IsAdminOrAbove checks if role is ADMIN or SUPER_ADMIN
+func IsAdminOrAbove(role string) bool {
+	r := strings.ToUpper(strings.TrimSpace(role))
+	return r == RoleSuperAdmin || r == RoleAdmin
+}
+
+// CanAccessUpstreams checks if role has access to upstream configurations
+func CanAccessUpstreams(role string) bool {
+	r := strings.ToUpper(strings.TrimSpace(role))
+	return r == RoleSuperAdmin || r == RoleAdmin || r == RoleMaintainer
+}
+
+// CanAccessQueries checks if role has access to queries & preview
+func CanAccessQueries(role string) bool {
+	r := strings.ToUpper(strings.TrimSpace(role))
+	return r == RoleSuperAdmin || r == RoleAdmin || r == RoleDeveloper
+}
+
 // Claims represents JWT claims for admin users
 type Claims struct {
 	UserID string `json:"user_id"`
