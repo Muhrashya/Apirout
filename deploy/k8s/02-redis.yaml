@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apirout-redis
+  namespace: apirout
+  labels:
+    app: apirout-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apirout-redis
+  template:
+    metadata:
+      labels:
+        app: apirout-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["redis-server", "--appendonly", "yes"]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apirout-redis
+  namespace: apirout
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+  selector:
+    app: apirout-redis

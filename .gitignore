@@ -1,0 +1,47 @@
+
+# Binaries
+server.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Environment variables
+.env
+
+# Data
+data/
+test_data_pagination/
+
+# Logs
+*.log
+server_*.txt
+server_*.log
+server_debug.log
+server_test.log
+
+# Temporary JSON files
+login.json
+login_*.json
+
+# Temporary/Verification Scripts (Optional: user might want these if they are useful tests)
+# setup_verification.ps1
+# setup_endpoint.ps1
+# verify_fixes.ps1
+# verify_final.ps1
+# manual_verify.ps1
+token.txt
+debug_response.ps1
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+dist/
+build/
