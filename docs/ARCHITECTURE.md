@@ -66,6 +66,12 @@ Configured via `APIROUT_ROLE`:
 | **Control Plane** | `control_plane` | Runs Admin API (`:8001`) and Web Console GUI (`:8002`). Handles DB migrations, metadata exports, and schema introspection. | Dedicated management cluster / internal node. |
 | **Data Plane** | `data_plane` | Ultra-fast, stateless API gateway (`:8000`) and Status/Metrics (`:8100`). Fetches metadata at boot and listens for Redis invalidation events. | Public DMZ, Kubernetes autoscaling cluster (HPA). |
 
+### Edge Reverse Proxy & Production Ingress
+In production environments, the four listener ports are shielded by an **Nginx Edge Reverse Proxy** (standalone VPS / Docker) or a **Kubernetes Ingress Controller with NetworkPolicies**:
+- Public traffic enters strictly on standard ports **80** (HTTP) and **443** (HTTPS).
+- The edge proxy maps domain routes to `:8000` (API Gateway) and `:8002` (Web Console), while enforcing IP allowlists on `:8001` (Admin API) and completely isolating `:8100` (Metrics) from external callers.
+- Full configuration files, compose stacks, and manifests are documented in the [Deployment Guide](../deploy/README.md).
+
 ---
 
 ## 2. Hasura Engine Paradigm (Instant Database APIs)

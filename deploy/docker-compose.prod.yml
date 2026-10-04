@@ -1,0 +1,126 @@
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Edge Reverse Proxy (Public Entrypoint Ports 80 & 443)
+  # ----------------------------------------------------------------------------
+  edge-proxy:
+    image: nginx:alpine
+    container_name: apirout-edge-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      apirout:
+        condition: service_healthy
+    networks:
+      - apirout-network
+
+  # ----------------------------------------------------------------------------
+  # 2. Apirout Engine & Gateway (Private Multi-Port Listener)
+  # ----------------------------------------------------------------------------
+  apirout:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-1.0.0}
+    image: apirout:v1.0.0
+    container_name: apirout
+    restart: unless-stopped
+    environment:
+      ROLE: traditional
+      APP_ENV: production
+      PROXY_PORT: 8000
+      ADMIN_PORT: 8001
+      GUI_PORT: 8002
+      STATUS_PORT: 8100
+      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      ADMIN_SECRET: ${ADMIN_SECRET:-MasterSecretKey2026!}
+      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-min-32-characters!}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-apirout-production-aes-key-32chars-secure!}
+      DB_TYPE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-main_db}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-ProductionSecurePassword123!}
+      DB_SSLMODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    # Notice: No host ports exposed! All traffic routes through edge-proxy.
+    expose:
+      - "8000"
+      - "8001"
+      - "8002"
+      - "8100"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - apirout-network
+
+  # ----------------------------------------------------------------------------
+  # 3. PostgreSQL Database Registry (Internal Network Only)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: apirout-registry-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-main_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ProductionSecurePassword123!}
+    volumes:
+      - apirout_pg_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - apirout-network
+
+  # ----------------------------------------------------------------------------
+  # 4. Redis Cache & Distributed Invalidation Pub/Sub (Internal Network Only)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: apirout-redis
+    restart: unless-stopped
+    volumes:
+      - apirout_redis_data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - apirout-network
+
+networks:
+  apirout-network:
+    driver: bridge
+
+volumes:
+  apirout_pg_data:
+  apirout_redis_data:
+  certbot_certs:
+  certbot_www:

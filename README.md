@@ -131,6 +131,14 @@ Default Web Console credentials:
 - **Email**: `admin@apirout.io`
 - **Password**: `AdminApirout2026!`
 
+### 4. Production Deployment & Edge Proxy
+
+For production environments outside local development, Apirout provides standardized architectures in [`deploy/`](deploy/):
+- **Production VPS (Docker Compose + Nginx Edge Proxy)**: Runs an edge Nginx reverse proxy on ports **80** and **443** (with SSL/TLS and real IP preservation), strictly isolating internal gateway ports (`deploy/docker-compose.prod.yml`).
+- **Production Kubernetes Cluster**: Autonomous Control-Plane (2 replicas) and Data-Plane (3 replicas with HPA) deployments with zero-trust NetworkPolicies (`deploy/k8s/`).
+
+See the complete [Deployment Guide](deploy/README.md) for full instructions.
+
 ---
 
 ## 🧩 Kong-Aligned Core Entities
