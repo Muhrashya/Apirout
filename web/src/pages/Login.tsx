@@ -7,10 +7,9 @@ import './Login.css';
 
 export default function Login() {
     const { branding } = useBranding();
-    const [email, setEmail] = useState('admin@apirout.io');
-    const [password, setPassword] = useState('AdminApirout2026!');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
-    const [rememberMe, setRememberMe] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
 
     const { login } = useAuth();
@@ -78,7 +77,7 @@ export default function Login() {
                                 className="custom-input"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                placeholder="admin@apirout.io"
+                                placeholder="name@company.com"
                                 autoComplete="email"
                                 required
                             />
@@ -105,24 +104,6 @@ export default function Login() {
                             >
                                 {showPassword ? 'Hide' : 'Show'}
                             </button>
-                        </div>
-
-                        {/* Remember Me Row */}
-                        <div className="form-options-row">
-                            <label className="remember-me-label">
-                                <input
-                                    type="checkbox"
-                                    checked={rememberMe}
-                                    onChange={(e) => setRememberMe(e.target.checked)}
-                                    className="custom-checkbox"
-                                />
-                                <span className="custom-checkbox-ui">
-                                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                                        <polyline points="2.5 6 4.5 8.5 9.5 3.5" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                </span>
-                                <span className="label-text">Remember me</span>
-                            </label>
                         </div>
 
                         {/* Primary Submit Button */}

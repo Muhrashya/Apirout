@@ -4,18 +4,63 @@ import { useToast } from '../components/Toast';
 import { useEffect } from 'react';
 
 export function ProtectedRoute() {
-    const { isAuthenticated, isLoading } = useAuth();
+    const { isAuthenticated, isLoading, setupRequired } = useAuth();
 
     if (isLoading) {
         return (
-            <div className="loading" style={{ height: '100vh' }}>
+            <div className="loading" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div className="spinner"></div>
             </div>
         );
     }
 
+    if (setupRequired) {
+        return <Navigate to="/setup" replace />;
+    }
+
     if (!isAuthenticated) {
         return <Navigate to="/login" replace />;
+    }
+
+    return <Outlet />;
+}
+
+export function SetupGuard() {
+    const { setupRequired, isLoading } = useAuth();
+
+    if (isLoading) {
+        return (
+            <div className="loading" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="spinner"></div>
+            </div>
+        );
+    }
+
+    // If setup is already complete, permanently lock out /setup and redirect to /login
+    if (!setupRequired) {
+        return <Navigate to="/login" replace />;
+    }
+
+    return <Outlet />;
+}
+
+export function PublicRoute() {
+    const { setupRequired, isAuthenticated, isLoading } = useAuth();
+
+    if (isLoading) {
+        return (
+            <div className="loading" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="spinner"></div>
+            </div>
+        );
+    }
+
+    if (setupRequired) {
+        return <Navigate to="/setup" replace />;
+    }
+
+    if (isAuthenticated) {
+        return <Navigate to="/overview" replace />;
     }
 
     return <Outlet />;

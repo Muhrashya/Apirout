@@ -50,3 +50,9 @@ A centralized, zero-dependency query builder that accepts structured query speci
 ### EventBus Invalidation Sync
 A decoupled synchronization port linking the Control Plane configuration publisher and Data Plane cache subscribers using strongly-typed `InvalidationEvent` domain messages, with production Redis pub/sub and in-memory test adapters.
 
+### Super Admin
+The highest-privilege administrative identity within the platform control plane possessing unrestricted authority across tenant user management, role-based access control, cryptographic secrets, database connections, and audit log inspection.
+
+### Initial Setup State
+A transient bootstrap phase active exclusively when zero accounts with the Super Admin role exist in the registry database. During this phase, access to the management console directs operators to the initial setup procedure, permanently locking upon successful creation of the root administrative identity.
+

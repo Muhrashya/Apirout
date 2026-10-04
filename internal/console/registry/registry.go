@@ -775,6 +775,42 @@ func (r *Registry) EnsureSuperAdmin(email, password string) error {
 	return err
 }
 
+// HasSuperAdmin checks if at least one SUPER_ADMIN user exists in the registry
+func (r *Registry) HasSuperAdmin() (bool, error) {
+	var count int
+	err := r.db.Get(&count, "SELECT COUNT(*) FROM users WHERE role = 'SUPER_ADMIN'")
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// CreateSuperAdmin creates the initial SUPER_ADMIN user
+func (r *Registry) CreateSuperAdmin(email, password string) (*User, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+
+	id := generateID()
+	now := time.Now()
+	_, err = r.db.Exec(
+		r.db.Rebind("INSERT INTO users (id, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)"),
+		id, email, string(hash), "SUPER_ADMIN", now,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &User{
+		ID:           id,
+		Email:        email,
+		PasswordHash: string(hash),
+		Role:         "SUPER_ADMIN",
+		CreatedAt:    now,
+	}, nil
+}
+
 // User represents a user in the system
 type User struct {
 	ID           string    `db:"id" json:"id"`

@@ -62,6 +62,8 @@ func buildAdminAPIRouter(d routerDeps) *mux.Router {
 
 	// API V1 Subrouter for Admin Management
 	apiV1 := r.PathPrefix("/api/v1").Subrouter()
+	apiV1.HandleFunc("/auth/setup-status", authHandler.SetupStatus).Methods("GET")
+	apiV1.HandleFunc("/auth/setup", authHandler.Setup).Methods("POST")
 	apiV1.Handle("/auth/login", d.loginLimiter.Handler(http.HandlerFunc(authHandler.Login))).Methods("POST")
 
 	// Branding & White-Labeling (GET is public, PUT is ADMIN/SUPER_ADMIN only)

@@ -3,11 +3,12 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/AuthProvider'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { ProtectedRoute, SettingsGuard, RoleRoute } from './routing/guards'
+import { ProtectedRoute, SettingsGuard, RoleRoute, SetupGuard, PublicRoute } from './routing/guards'
 import AppLayout from './layout/AppLayout'
 import { BrandingProvider } from './context/BrandingContext'
 
 // Lazy-loaded route pages for code-splitting and smaller initial bundle
+const Setup = lazy(() => import('./pages/Setup'))
 const Login = lazy(() => import('./pages/Login'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const RoutesPage = lazy(() => import('./pages/Routes'))
@@ -52,7 +53,15 @@ function App() {
                         <BrandingProvider>
                             <Suspense fallback={<PageFallback />}>
                                 <Routes>
-                                    <Route path="/login" element={<Login />} />
+                                    {/* Setup Route: active only when setup is required */}
+                                    <Route element={<SetupGuard />}>
+                                        <Route path="/setup" element={<Setup />} />
+                                    </Route>
+
+                                    {/* Public Login Route: redirects to /setup if setup_required */}
+                                    <Route element={<PublicRoute />}>
+                                        <Route path="/login" element={<Login />} />
+                                    </Route>
 
                                     <Route element={<ProtectedRoute />}>
                                         <Route element={<AppLayout />}>
@@ -174,7 +183,7 @@ function SettingsRedirect() {
 }
 
 function RootRedirect() {
-    const { isAuthenticated, isLoading } = useAuth()
+    const { isAuthenticated, isLoading, setupRequired } = useAuth()
 
     if (isLoading) {
         return (
@@ -182,6 +191,10 @@ function RootRedirect() {
                 <div className="spinner"></div>
             </div>
         )
+    }
+
+    if (setupRequired) {
+        return <Navigate to="/setup" replace />
     }
 
     return <Navigate to={isAuthenticated ? "/overview" : "/login"} replace />

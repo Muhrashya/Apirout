@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -259,5 +260,107 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	})
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "Password updated successfully"})
+}
+
+// SetupStatusResponse represents first-boot setup status
+type SetupStatusResponse struct {
+	SetupRequired bool `json:"setup_required"`
+	HasSuperAdmin bool `json:"has_super_admin"`
+}
+
+// SetupStatus checks if the system requires first-time super admin configuration
+func (h *Handler) SetupStatus(w http.ResponseWriter, r *http.Request) {
+	hasAdmin, err := h.registry.HasSuperAdmin()
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to check setup status: "+err.Error())
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, SetupStatusResponse{
+		SetupRequired: !hasAdmin,
+		HasSuperAdmin: hasAdmin,
+	})
+}
+
+// SetupRequest represents the initial Super Admin creation payload
+type SetupRequest struct {
+	Email           string `json:"email"`
+	Password        string `json:"password"`
+	ConfirmPassword string `json:"confirm_password"`
+}
+
+// Setup provisions the initial root Super Admin account if none exists
+func (h *Handler) Setup(w http.ResponseWriter, r *http.Request) {
+	hasAdmin, err := h.registry.HasSuperAdmin()
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Database error: "+err.Error())
+		return
+	}
+	if hasAdmin {
+		httputil.WriteJSONError(w, http.StatusConflict, "Setup has already been completed")
+		return
+	}
+
+	var req SetupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	clientIP := httputil.GetClientIP(r)
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	if req.Email == "" {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "email is required")
+		return
+	}
+	if !emailRegex.MatchString(req.Email) {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "invalid email format")
+		return
+	}
+
+	if req.Password == "" {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "password is required")
+		return
+	}
+	if len(req.Password) < 8 {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+	if req.ConfirmPassword != "" && req.Password != req.ConfirmPassword {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "passwords do not match")
+		return
+	}
+
+	user, err := h.registry.CreateSuperAdmin(req.Email, req.Password)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create super admin: "+err.Error())
+		return
+	}
+
+	// Create audit log for initial provisioning
+	h.registry.CreateAuditLog(&registry.AuditLog{
+		EventType: "super_admin_setup_completed",
+		UserID:    &user.ID,
+		IPAddress: &clientIP,
+		Details:   fmt.Sprintf(`{"email":"%s","role":"SUPER_ADMIN"}`, user.Email),
+		Success:   true,
+	})
+
+	token, expiresAt, err := h.service.GenerateToken(user)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to generate token: "+err.Error())
+		return
+	}
+
+	resp := LoginResponse{
+		Token:     token,
+		ExpiresAt: expiresAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+	resp.User.ID = user.ID
+	resp.User.Email = user.Email
+	resp.User.Role = user.Role
+
+	httputil.WriteJSON(w, http.StatusCreated, resp)
 }
 

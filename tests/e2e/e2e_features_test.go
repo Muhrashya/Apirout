@@ -484,4 +484,44 @@ func TestE2E_InstantCRUDAndSQLDialect(t *testing.T) {
 			t.Errorf("expected preview data in response")
 		}
 	})
+
+	t.Run("First-Time Setup Discovery and Lockout", func(t *testing.T) {
+		// 1. Unauthenticated check on setup-status
+		resp, err := http.Get(adminURL + "/api/v1/auth/setup-status")
+		if err != nil {
+			t.Fatalf("failed to query setup-status: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 OK from setup-status, got %d", resp.StatusCode)
+		}
+
+		var setupStatus map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&setupStatus); err != nil {
+			t.Fatalf("failed to decode setup-status json: %v", err)
+		}
+
+		// The existing cluster has a super admin seeded on boot
+		if setupStatus["has_super_admin"] != true || setupStatus["setup_required"] != false {
+			t.Fatalf("expected has_super_admin=true and setup_required=false, got %+v", setupStatus)
+		}
+
+		// 2. Submitting setup against already-configured instance must return 409 Conflict
+		setupPayload := map[string]string{
+			"email":            "intruder@apirout.io",
+			"password":         "IntruderPassword2026!",
+			"confirm_password": "IntruderPassword2026!",
+		}
+		payloadBytes, _ := json.Marshal(setupPayload)
+		postResp, err := http.Post(adminURL+"/api/v1/auth/setup", "application/json", bytes.NewReader(payloadBytes))
+		if err != nil {
+			t.Fatalf("failed to post setup: %v", err)
+		}
+		defer postResp.Body.Close()
+
+		if postResp.StatusCode != http.StatusConflict {
+			t.Fatalf("expected 409 Conflict when super admin already exists, got %d", postResp.StatusCode)
+		}
+	})
 }

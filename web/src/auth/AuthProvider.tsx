@@ -41,6 +41,9 @@ export interface AuthContextType {
     canAccessDomains: () => boolean;
     canManageUsers: () => boolean;
     getManageableGroups: () => GroupMembership[];
+    setupRequired: boolean;
+    completeSetup: (email: string, password: string, confirmPassword: string) => Promise<void>;
+    checkSetupStatus: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -48,6 +51,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [setupRequired, setSetupRequired] = useState(false);
 
     const refreshUser = async () => {
         try {
@@ -59,12 +63,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     };
 
+    const checkSetupStatus = async (): Promise<boolean> => {
+        try {
+            const res = await apiClient.get<{ setup_required: boolean; has_super_admin: boolean }>('/auth/setup-status');
+            setSetupRequired(res.setup_required);
+            return res.setup_required;
+        } catch {
+            return false;
+        }
+    };
+
     useEffect(() => {
         const init = async () => {
-            if (hasToken()) {
-                await refreshUser();
+            try {
+                await checkSetupStatus();
+                if (hasToken()) {
+                    await refreshUser();
+                }
+            } finally {
+                setIsLoading(false);
             }
-            setIsLoading(false);
         };
         init();
     }, []);
@@ -82,6 +100,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(response.user);
 
         // Fetch fresh user data to ensure state is synced
+        await refreshUser();
+    };
+
+    const completeSetup = async (email: string, password: string, confirmPassword: string) => {
+        const response = await apiClient.post<{ token: string; user: User }>('/auth/setup', {
+            email,
+            password,
+            confirm_password: confirmPassword,
+        });
+
+        setToken(response.token);
+        setUser(response.user);
+        setSetupRequired(false);
         await refreshUser();
     };
 
@@ -156,6 +187,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 canAccessDomains,
                 canManageUsers,
                 getManageableGroups,
+                setupRequired,
+                completeSetup,
+                checkSetupStatus,
             }}
         >
             {children}
