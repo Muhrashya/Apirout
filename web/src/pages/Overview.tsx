@@ -6,9 +6,20 @@ import {
 import { apiClient } from '../api/apiClient';
 import {
     IconSpeedometer, IconClock, IconAlertTriangle, IconSliders,
-    IconRefresh, IconPlus, IconTerminal, IconServices, IconRoutes, IconDotsHorizontal
+    IconRefresh, IconPlus, IconServices, IconRoutes, IconDotsHorizontal,
+    IconFileText
 } from '../components/Icons';
 import './Overview.css';
+
+const getStatusCodeClass = (code: number) => {
+    if (code >= 200 && code < 300) return 'code-2xx';
+    if (code >= 300 && code < 400) return 'code-3xx';
+    if (code === 401 || code === 403) return 'code-403';
+    if (code === 429) return 'code-429';
+    if (code >= 400 && code < 500) return 'code-4xx';
+    if (code >= 500 && code < 600) return 'code-5xx';
+    return 'code-2xx';
+};
 
 interface DashboardStats {
     uptime_seconds?: number;
@@ -379,44 +390,47 @@ export default function Overview() {
                     )}
                 </div>
 
-                {/* Recent activity */}
+                {/* API Logs */}
                 <div className="overview-card">
                     <div className="card-top-row">
                         <div className="card-title-group">
-                            <h2 className="card-heading">Recent activity</h2>
-                            <p className="card-subheading">Live gateway events</p>
+                            <h2 className="card-heading">API Logs</h2>
+                            <p className="card-subheading">Live gateway requests</p>
                         </div>
                         <span style={{ color: '#64748b' }}>
-                            <IconTerminal width={18} height={18} />
+                            <IconFileText width={18} height={18} />
                         </span>
                     </div>
 
                     {recentEvents.length > 0 ? (
                         <div className="recent-activity-list">
-                            {recentEvents.map((ev: any, i: number) => (
-                                <div className="activity-event-row" key={ev.id || i}>
-                                    <span className={`status-code-pill code-${ev.status_code || 200}`}>
-                                        {ev.status_code || 200}
-                                    </span>
-                                    <span className="activity-event-path">
-                                        {ev.method || 'GET'} {ev.path || '/'}
-                                    </span>
-                                    <span className="activity-event-time">
-                                        {ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : 'Just now'}
-                                    </span>
-                                </div>
-                            ))}
+                            {recentEvents.map((ev: any, i: number) => {
+                                const statusCode = ev.status_code || 200;
+                                return (
+                                    <div className="activity-event-row" key={ev.id || i}>
+                                        <span className={`status-code-pill code-${statusCode} ${getStatusCodeClass(statusCode)}`}>
+                                            {statusCode}
+                                        </span>
+                                        <span className="activity-event-path">
+                                            {ev.method || 'GET'} {ev.path || '/'}
+                                        </span>
+                                        <span className="activity-event-time">
+                                            {ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : 'Just now'}
+                                        </span>
+                                    </div>
+                                );
+                            })}
                         </div>
                     ) : (
                         <div className="empty-state-card-box">
-                            <span className="empty-icon-sub"><IconTerminal width={36} height={36} /></span>
-                            <p className="empty-title">No recent activity</p>
-                            <p className="empty-desc">Live gateway events will be streamed here as requests arrive.</p>
+                            <span className="empty-icon-sub"><IconFileText width={36} height={36} /></span>
+                            <p className="empty-title">No recorded requests</p>
+                            <p className="empty-desc">Live gateway requests will appear here as traffic arrives.</p>
                         </div>
                     )}
 
                     <div className="card-bottom-link-row">
-                        <Link to="/audit-logs" className="card-link-action">
+                        <Link to="/logs" className="card-link-action">
                             Open logs &gt;
                         </Link>
                     </div>
