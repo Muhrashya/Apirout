@@ -47,14 +47,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	if err := reg.MigrateSchema(); err != nil {
 		return nil, fmt.Errorf("migrate schema: %w", err)
 	}
-	if cfg.AdminEmail != "" && cfg.AdminPassword != "" {
-		if err := reg.EnsureSuperAdmin(cfg.AdminEmail, cfg.AdminPassword); err != nil {
-			return nil, fmt.Errorf("ensure super admin: %w", err)
-		}
-		logger.Info("Control Plane registry ready", "db_type", reg.DBType(), "admin_email", cfg.AdminEmail)
-	} else {
-		logger.Info("Control Plane registry ready", "db_type", reg.DBType())
-	}
+	logger.Info("Control Plane registry ready", "db_type", reg.DBType())
 
 	// Redis Publisher
 	pub := publisher.NewRedisPublisher(cfg.RedisURL, cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword, logger)

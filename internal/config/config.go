@@ -46,8 +46,6 @@ type Config struct {
 	AdminSecret        string // Hasura-style admin secret for automated/CI access
 	JWTTTL             time.Duration
 	APITokenTTL        time.Duration
-	AdminEmail         string
-	AdminPassword      string
 	EncryptionKey      string
 	GlobalRateLimitRPM int
 
@@ -118,8 +116,6 @@ func Load() (*Config, error) {
 		LogLevel:           strings.ToLower(getEnvAny("LOG_LEVEL", "APIROUT_LOG_LEVEL", "info")),
 		JWTSecret:          getEnvAny("JWT_SECRET", "APIROUT_JWT_SECRET", "default-jwt-secret-key-min-32-characters!"),
 		AdminSecret:        getEnvAny("ADMIN_SECRET", "APIROUT_ADMIN_SECRET", ""),
-		AdminEmail:         getEnvAny("ADMIN_EMAIL", "APIROUT_ADMIN_EMAIL", ""),
-		AdminPassword:      getEnvAny("ADMIN_PASSWORD", "APIROUT_ADMIN_PASSWORD", ""),
 		EncryptionKey:      getEnvAny("APP_ENCRYPTION_KEY", "APIROUT_ENCRYPTION_KEY", "aes-encryption-key-32-chars-ok!"),
 		GlobalRateLimitRPM: getEnvInt("GLOBAL_RATE_LIMIT_RPM", 600),
 
@@ -163,8 +159,25 @@ func Load() (*Config, error) {
 		if len(cfg.JWTSecret) < 32 || cfg.JWTSecret == "default-jwt-secret-key-min-32-characters!" || cfg.JWTSecret == "apirout-default-jwt-secret-key-32chars!" {
 			return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters and must not use default placeholder in production")
 		}
-		if len(cfg.EncryptionKey) < 32 || cfg.EncryptionKey == "aes-encryption-key-32-chars-ok!" {
+		if len(cfg.EncryptionKey) < 32 || cfg.EncryptionKey == "aes-encryption-key-32-chars-ok!" || cfg.EncryptionKey == "aes-encryption-key-32-characters!" {
 			return nil, fmt.Errorf("APP_ENCRYPTION_KEY must be at least 32 characters and must not use default placeholder in production")
+		}
+		if cfg.AdminSecret == "" {
+			return nil, fmt.Errorf("ADMIN_SECRET must be set in production to secure administrative APIs")
+		}
+		if cfg.AdminSecret == "MasterSecretKey2026!" || cfg.AdminSecret == "APIROUT_ADMIN_SECRET" {
+			return nil, fmt.Errorf("ADMIN_SECRET must not use default placeholder in production")
+		}
+		if len(cfg.AdminSecret) < 24 {
+			return nil, fmt.Errorf("ADMIN_SECRET must be at least 24 characters in production")
+		}
+		if cfg.DBType == "postgres" || cfg.DBType == "postgresql" || cfg.DBType == "mysql" {
+			if cfg.DBPassword == "" {
+				return nil, fmt.Errorf("DB_PASSWORD must not be empty in production for database type %s", cfg.DBType)
+			}
+			if cfg.DBPassword == "Password123!" || cfg.DBPassword == "ProductionSecurePassword123!" || cfg.DBPassword == "postgres" || cfg.DBPassword == "admin" {
+				return nil, fmt.Errorf("DB_PASSWORD must not use default placeholder in production")
+			}
 		}
 	}
 
