@@ -34,7 +34,7 @@ services:
     container_name: apirout
     environment:
       ROLE: ${ROLE:-traditional}
-      APP_ENV: ${APP_ENV:-production}
+      APP_ENV: ${APP_ENV:-development}
       PROXY_PORT: ${PROXY_PORT:-8000}
       ADMIN_PORT: ${ADMIN_PORT:-8001}
       GUI_PORT: ${GUI_PORT:-8002}
@@ -42,7 +42,7 @@ services:
       ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-*}
       ADMIN_SECRET: ${ADMIN_SECRET:-MasterSecretKey2026!}
       JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-min-32-characters!}
-      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-aes-encryption-key-32-chars-ok!}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-apirout-local-dev-aes-encryption-key-32!}
       DB_TYPE: ${DB_TYPE:-postgres}
       DB_HOST: ${DB_HOST:-postgres}
       DB_PORT: ${DB_PORT:-5432}
