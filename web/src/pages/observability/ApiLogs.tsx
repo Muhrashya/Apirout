@@ -134,7 +134,7 @@ export default function ApiLogsPage() {
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '16px', position: 'relative' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative' }}>
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
@@ -230,8 +230,7 @@ export default function ApiLogsPage() {
                 border: '1px solid #e2e8f0',
                 borderRadius: '12px',
                 overflow: 'hidden',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                flex: 1
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
             }}>
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
