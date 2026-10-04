@@ -15,10 +15,11 @@ Write-Host "[OK] Production Docker Compose syntax valid" -ForegroundColor Green
 Write-Host "==> 2. Validating Nginx Edge Proxy configuration..." -ForegroundColor Cyan
 $nginxConf = (Resolve-Path "deploy/nginx/nginx.conf").Path
 $confD = (Resolve-Path "deploy/nginx/conf.d").Path
-& docker run --rm -v "${nginxConf}:/etc/nginx/nginx.conf:ro" -v "${confD}:/etc/nginx/conf.d:ro" nginx:alpine nginx -t
+$sslDir = (Resolve-Path "deploy/nginx/ssl").Path
+& docker run --rm -v "${nginxConf}:/etc/nginx/nginx.conf:ro" -v "${confD}:/etc/nginx/conf.d:ro" -v "${sslDir}:/etc/nginx/ssl:ro" nginx:alpine nginx -t
 if ($LASTEXITCODE -ne 0) {
     # If host resolution fails without network, run on compose network
-    & docker run --rm --network api-builder-main_default -v "${nginxConf}:/etc/nginx/nginx.conf:ro" -v "${confD}:/etc/nginx/conf.d:ro" nginx:alpine nginx -t
+    & docker run --rm --network api-builder-main_default -v "${nginxConf}:/etc/nginx/nginx.conf:ro" -v "${confD}:/etc/nginx/conf.d:ro" -v "${sslDir}:/etc/nginx/ssl:ro" nginx:alpine nginx -t
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Nginx configuration test failed."
         exit 1
