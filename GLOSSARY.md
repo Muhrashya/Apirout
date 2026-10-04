@@ -43,3 +43,10 @@ A standardized versioning scheme (`vMAJOR.MINOR.PATCH`) where `MAJOR` indicates 
 
 ### Build-Time Version Injection
 The process of setting application version metadata during binary compilation via linker flags (`-ldflags="-X main.version=..."`), ensuring Git release tags act as the authoritative source of truth.
+
+### SQL Dialect Engine
+A centralized, zero-dependency query builder that accepts structured query specifications and produces dialect-specialized, parameterized SQL strings and positional argument bindings for target database engines (PostgreSQL, MySQL, Microsoft SQL Server).
+
+### EventBus Invalidation Sync
+A decoupled synchronization port linking the Control Plane configuration publisher and Data Plane cache subscribers using strongly-typed `InvalidationEvent` domain messages, with production Redis pub/sub and in-memory test adapters.
+
