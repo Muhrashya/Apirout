@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -65,15 +64,7 @@ func (p *RedisPublisher) PublishEndpointChanged(action, endpointID, path string)
 
 	// Dispatch to typed EventBus if available
 	if p.bus != nil {
-		actionType := eventbus.ActionUpdated
-		switch strings.ToUpper(action) {
-		case "CREATE", "INSERT":
-			actionType = eventbus.ActionCreated
-		case "DELETE", "REMOVE":
-			actionType = eventbus.ActionDeleted
-		case "BULK_IMPORT", "PURGE":
-			actionType = eventbus.ActionPurged
-		}
+		actionType := eventbus.ParseActionType(action)
 		_ = p.bus.Publish(ctx, eventbus.NewInvalidationEvent(eventbus.EntityRoute, endpointID, actionType))
 	}
 
@@ -107,10 +98,7 @@ func (p *RedisPublisher) PublishConnectionChanged(action, connectionID string) e
 
 	// Dispatch to typed EventBus if available
 	if p.bus != nil {
-		actionType := eventbus.ActionUpdated
-		if strings.ToUpper(action) == "DELETE" {
-			actionType = eventbus.ActionDeleted
-		}
+		actionType := eventbus.ParseActionType(action)
 		_ = p.bus.Publish(ctx, eventbus.NewInvalidationEvent(eventbus.EntityConnection, connectionID, actionType))
 	}
 

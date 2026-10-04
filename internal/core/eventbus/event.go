@@ -1,6 +1,7 @@
 package eventbus
 
 import (
+	"strings"
 	"time"
 )
 
@@ -29,6 +30,22 @@ const (
 	ActionDeleted ActionType = "deleted"
 	ActionPurged  ActionType = "purged"
 )
+
+// ParseActionType normalizes string action names into strongly-typed ActionType
+func ParseActionType(str string) ActionType {
+	switch strings.ToUpper(strings.TrimSpace(str)) {
+	case "CREATE", "INSERT", "CREATED":
+		return ActionCreated
+	case "DELETE", "REMOVE", "DELETED":
+		return ActionDeleted
+	case "BULK_IMPORT", "PURGE", "PURGED", "CLEAR":
+		return ActionPurged
+	case "UPDATE", "UPDATED", "MODIFY", "RESET":
+		return ActionUpdated
+	default:
+		return ActionUpdated
+	}
+}
 
 // InvalidationEvent is the standard event envelope for cross-plane synchronization
 type InvalidationEvent struct {

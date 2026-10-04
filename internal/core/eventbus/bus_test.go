@@ -88,3 +88,31 @@ func TestInvalidationEventJSON(t *testing.T) {
 		t.Errorf("expected non-zero timestamp")
 	}
 }
+
+func TestParseActionType(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected ActionType
+	}{
+		{"CREATE", ActionCreated},
+		{"insert", ActionCreated},
+		{"created", ActionCreated},
+		{"DELETE", ActionDeleted},
+		{"remove", ActionDeleted},
+		{"deleted", ActionDeleted},
+		{"PURGE", ActionPurged},
+		{"bulk_import", ActionPurged},
+		{"clear", ActionPurged},
+		{"UPDATE", ActionUpdated},
+		{"modify", ActionUpdated},
+		{"reset", ActionUpdated},
+		{"unknown", ActionUpdated},
+	}
+
+	for _, tc := range tests {
+		got := ParseActionType(tc.input)
+		if got != tc.expected {
+			t.Errorf("ParseActionType(%q) = %q, expected %q", tc.input, got, tc.expected)
+		}
+	}
+}

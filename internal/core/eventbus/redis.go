@@ -67,6 +67,15 @@ func (b *RedisEventBus) Subscribe(ctx context.Context, handler EventHandler) err
 
 	ch := b.pubsub.Channel()
 	go func() {
+		defer func() {
+			b.mu.Lock()
+			if b.pubsub != nil {
+				_ = b.pubsub.Close()
+				b.pubsub = nil
+			}
+			b.mu.Unlock()
+		}()
+
 		for {
 			select {
 			case <-b.stopCh:
@@ -97,9 +106,15 @@ func (b *RedisEventBus) Close() error {
 		return nil
 	}
 	b.closed = true
-	close(b.stopCh)
+	select {
+	case <-b.stopCh:
+	default:
+		close(b.stopCh)
+	}
 	if b.pubsub != nil {
-		return b.pubsub.Close()
+		err := b.pubsub.Close()
+		b.pubsub = nil
+		return err
 	}
 	return nil
 }
