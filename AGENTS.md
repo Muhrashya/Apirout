@@ -4,7 +4,7 @@
 
 ### Issue tracker
 
-GitHub Issues at `apirout/apirout` using `gh` CLI. See `docs/agents/issue-tracker.md`.
+GitHub Issues at `Muhrashya/Apirout` using `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
