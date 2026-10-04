@@ -9,8 +9,9 @@ COPY web/ ./
 RUN npm run build
 
 # Stage 2: Build Go Apirout binary
-FROM golang:1.22-alpine AS go-builder
+FROM golang:alpine AS go-builder
 
+ENV GOTOOLCHAIN=auto
 WORKDIR /build
 RUN apk add --no-cache git ca-certificates tzdata
 
