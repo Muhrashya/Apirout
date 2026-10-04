@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,7 +18,9 @@ import (
 	gatewayApp "github.com/apirout/apirout/internal/gateway/app"
 )
 
-const version = "1.0.0"
+// version is injected at build time via -ldflags="-X main.version=...".
+// Defaults to "1.0.0-dev" when built without flags.
+var version = "1.0.0-dev"
 
 func main() {
 	if err := run(); err != nil {
@@ -28,17 +31,9 @@ func main() {
 
 func run() error {
 	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "migrate":
-			return runMigrate()
-		case "create-admin":
-			return runCreateAdmin()
-		case "version", "-v", "--version":
-			fmt.Printf("Apirout version %s (Open Source Instant API Engine & Gateway)\n", version)
-			return nil
-		case "help", "-h", "--help":
-			printHelp()
-			return nil
+		handled, err := handleCLICommand(os.Args[1:], os.Stdout)
+		if handled {
+			return err
 		}
 	}
 
@@ -259,4 +254,24 @@ func runCreateAdmin() error {
 
 	fmt.Printf("Admin account %s created successfully!\n", email)
 	return nil
+}
+
+func handleCLICommand(args []string, w io.Writer) (bool, error) {
+	if len(args) == 0 {
+		return false, nil
+	}
+	switch args[0] {
+	case "migrate":
+		return true, runMigrate()
+	case "create-admin":
+		return true, runCreateAdmin()
+	case "version", "-v", "--version":
+		fmt.Fprintf(w, "Apirout version %s (Open Source Instant API Engine & Gateway)\n", version)
+		return true, nil
+	case "help", "-h", "--help":
+		printHelp()
+		return true, nil
+	default:
+		return false, nil
+	}
 }

@@ -31,3 +31,15 @@ A parameterized database query defined in the console and executed securely by t
 
 ### Request Audit Log
 An authoritative record capturing the timestamp, client identity, execution path, HTTP status code, duration, gateway overhead latency, and upstream round-trip latency for an executed API call.
+
+### Trunk Branch
+The default, continuously deliverable mainline branch (`main`) in a Trunk-Based development lifecycle where short-lived feature and bugfix branches merge.
+
+### Release Tag
+An immutable, annotated Git tag formatted as `vMAJOR.MINOR.PATCH` marking a formal production-ready milestone of the Apirout platform.
+
+### Semantic Versioning
+A standardized versioning scheme (`vMAJOR.MINOR.PATCH`) where `MAJOR` indicates breaking architectural or API changes, `MINOR` adds backwards-compatible features, and `PATCH` applies backwards-compatible bug and security fixes.
+
+### Build-Time Version Injection
+The process of setting application version metadata during binary compilation via linker flags (`-ldflags="-X main.version=..."`), ensuring Git release tags act as the authoritative source of truth.

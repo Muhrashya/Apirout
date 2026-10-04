@@ -1,4 +1,4 @@
-.PHONY: all build run test clean docker-build docker-up docker-down help
+.PHONY: all build run test clean docker-build docker-up docker-down release help
 
 APP_NAME = apirout
 VERSION ?= 1.0.0
@@ -12,6 +12,7 @@ help:
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make build             Build the unified Go binary and web console"
+	@echo "  make release           Run release workflow and tag version (e.g. make release VERSION=v1.0.0)"
 	@echo "  make run-traditional   Run Apirout in traditional mode (All-in-One Gateway + Console)"
 	@echo "  make run-cp            Run Apirout in Control-Plane mode (Console & Management API only)"
 	@echo "  make run-dp            Run Apirout in Data-Plane mode (Stateless Gateway only)"
@@ -43,13 +44,16 @@ create-admin:
 	go run ./cmd/apirout create-admin
 
 docker-build:
-	docker build -t $(APP_NAME):$(VERSION) -t $(APP_NAME):latest .
+	docker build --build-arg VERSION=$(VERSION) -t $(APP_NAME):$(VERSION) -t $(APP_NAME):latest .
 
 docker-up:
 	docker compose up -d
 
 docker-down:
 	docker compose down
+
+release:
+	@powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version $(VERSION)
 
 clean:
 	rm -rf bin/ web/dist
