@@ -257,7 +257,11 @@ func (h *InstantCRUDHandler) QueryTable(w http.ResponseWriter, r *http.Request) 
 		Columns: []string{"COUNT(*)"},
 		Filters: filters,
 	}
-	countSQL, countArgs, _ := gen.BuildSelect(countSpec)
+	countSQL, countArgs, err := gen.BuildSelect(countSpec)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to assemble count query: "+err.Error())
+		return
+	}
 	var total int64
 	_ = db.QueryRowContext(r.Context(), countSQL, countArgs...).Scan(&total)
 
@@ -654,8 +658,11 @@ func (h *InstantCRUDHandler) DeleteRow(w http.ResponseWriter, r *http.Request) {
 
 func (h *InstantCRUDHandler) getTargetConn(ctx context.Context, connID string) (string, string, error) {
 	conn, err := h.reader.GetConnectionByID(connID)
-	if err != nil || conn == nil {
-		return "", "", fmt.Errorf("connection %s not found: %w", connID, err)
+	if err != nil {
+		return "", "", fmt.Errorf("connection %s lookup failed: %w", connID, err)
+	}
+	if conn == nil {
+		return "", "", fmt.Errorf("connection %s not found", connID)
 	}
 
 	password, err := crypto.DecryptPassword(crypto.NormalizeKey(h.encryptionKey), conn.PasswordEncrypted)
