@@ -123,7 +123,7 @@ func (s *Service) PreviewQuery(connectionID, sql string, limit, offset int) ([]t
 	}
 
 	// Wrap with limit and offset
-	wrappedSQL := WrapWithPagination(sql, effectiveLimit, effectiveOffset)
+	wrappedSQL := WrapWithPaginationForDialect(sql, conn.DBType, effectiveLimit, effectiveOffset)
 
 	// Execute with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout)

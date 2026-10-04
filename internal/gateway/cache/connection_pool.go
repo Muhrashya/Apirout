@@ -100,6 +100,17 @@ func (p *ConnectionPool) Invalidate(connectionID string) {
 	}
 }
 
+// InvalidateAll closes and purges all pooled connections
+func (p *ConnectionPool) InvalidateAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for id, conn := range p.connections {
+		conn.DB.Close()
+		delete(p.connections, id)
+	}
+}
+
 // Close closes all pooled connections
 func (p *ConnectionPool) Close() {
 	p.mu.Lock()

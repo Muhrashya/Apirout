@@ -68,7 +68,7 @@ func (c *CountCache) Invalidate(endpointID string) {
 
 	prefix := endpointID + ":"
 	for key := range c.data {
-		if strings.HasPrefix(key, prefix) {
+		if key == endpointID || strings.HasPrefix(key, prefix) {
 			delete(c.data, key)
 		}
 	}

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/apirout/apirout/internal/core/sqldialect"
 )
 
 var (
@@ -64,11 +66,22 @@ func WrapWithLimit(sql string, limit int) string {
 
 // WrapWithPagination wraps a query with LIMIT and OFFSET
 func WrapWithPagination(sql string, limit, offset int) string {
-	sql = strings.TrimSpace(sql)
-	sql = strings.TrimSuffix(sql, ";")
+	res, err := sqldialect.WrapPagination(sql, "postgres", limit, offset)
+	if err != nil {
+		sql = strings.TrimSpace(sql)
+		sql = strings.TrimSuffix(sql, ";")
+		return fmt.Sprintf("SELECT * FROM (%s) AS _paginated_query LIMIT %d OFFSET %d", sql, limit, offset)
+	}
+	return res
+}
 
-	// Always wrap to safely apply offset and limit preference
-	return fmt.Sprintf("SELECT * FROM (%s) AS _paginated_query LIMIT %d OFFSET %d", sql, limit, offset)
+// WrapWithPaginationForDialect wraps a query with LIMIT and OFFSET using the target database dialect
+func WrapWithPaginationForDialect(sql, dialect string, limit, offset int) string {
+	res, err := sqldialect.WrapPagination(sql, dialect, limit, offset)
+	if err != nil {
+		return WrapWithPagination(sql, limit, offset)
+	}
+	return res
 }
 
 // SanitizeSQL performs basic SQL sanitization

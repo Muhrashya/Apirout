@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/apirout/apirout/internal/gateway/cache"
 	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/core/introspection"
+	"github.com/apirout/apirout/internal/core/sqldialect"
 	"github.com/apirout/apirout/internal/gateway/registry"
 )
 
@@ -127,6 +129,48 @@ func (h *InstantCRUDHandler) GetSchema(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, schema)
 }
 
+func parseInstantFilters(q url.Values) []sqldialect.FilterCondition {
+	var filters []sqldialect.FilterCondition
+	for key, values := range q {
+		if key == "limit" || key == "offset" || key == "select" || key == "order" || key == "sort" || key == "page" {
+			continue
+		}
+		if !identifierRegex.MatchString(key) {
+			continue
+		}
+
+		for _, val := range values {
+			if strings.HasPrefix(val, "eq.") {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpEq, Value: strings.TrimPrefix(val, "eq.")})
+			} else if strings.HasPrefix(val, "neq.") {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpNeq, Value: strings.TrimPrefix(val, "neq.")})
+			} else if strings.HasPrefix(val, "gt.") {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpGt, Value: strings.TrimPrefix(val, "gt.")})
+			} else if strings.HasPrefix(val, "gte.") {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpGte, Value: strings.TrimPrefix(val, "gte.")})
+			} else if strings.HasPrefix(val, "lt.") {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpLt, Value: strings.TrimPrefix(val, "lt.")})
+			} else if strings.HasPrefix(val, "lte.") {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpLte, Value: strings.TrimPrefix(val, "lte.")})
+			} else if strings.HasPrefix(val, "like.") {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpLike, Value: strings.TrimPrefix(val, "like.")})
+			} else if strings.HasPrefix(val, "ilike.") {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpIlike, Value: strings.TrimPrefix(val, "ilike.")})
+			} else if strings.HasPrefix(val, "in.(") && strings.HasSuffix(val, ")") {
+				inner := strings.TrimSuffix(strings.TrimPrefix(val, "in.("), ")")
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpIn, Value: strings.Split(inner, ",")})
+			} else if val == "is.null" {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpIsNull})
+			} else if val == "is.notnull" || val == "is.not_null" || val == "not.is.null" {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpNotNull})
+			} else {
+				filters = append(filters, sqldialect.FilterCondition{Column: key, Operator: sqldialect.OpEq, Value: val})
+			}
+		}
+	}
+	return filters
+}
+
 // QueryTable handles GET /api/v1/instant/{connId}/{table}
 func (h *InstantCRUDHandler) QueryTable(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -167,96 +211,27 @@ func (h *InstantCRUDHandler) QueryTable(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Columns selection
-	columns := "*"
+	var validCols []string
 	if sel := q.Get("select"); sel != "" {
 		selectedCols := strings.Split(sel, ",")
-		validCols := make([]string, 0, len(selectedCols))
 		for _, col := range selectedCols {
 			col = strings.TrimSpace(col)
 			if identifierRegex.MatchString(col) {
-				validCols = append(validCols, quoteIdentifier(dbType, col))
-			}
-		}
-		if len(validCols) > 0 {
-			columns = strings.Join(validCols, ", ")
-		}
-	}
-
-	// Filtering & Where clause
-	whereClauses := []string{}
-	args := []interface{}{}
-	argIdx := 1
-
-	for key, values := range q {
-		if key == "limit" || key == "offset" || key == "select" || key == "order" || key == "sort" || key == "page" {
-			continue
-		}
-		if !identifierRegex.MatchString(key) {
-			continue
-		}
-
-		colName := quoteIdentifier(dbType, key)
-		for _, val := range values {
-			placeholder := fmt.Sprintf("$%d", argIdx)
-			if dbType == "mysql" {
-				placeholder = "?"
-			}
-
-			if strings.HasPrefix(val, "eq.") {
-				whereClauses = append(whereClauses, fmt.Sprintf("%s = %s", colName, placeholder))
-				args = append(args, strings.TrimPrefix(val, "eq."))
-				argIdx++
-			} else if strings.HasPrefix(val, "neq.") {
-				whereClauses = append(whereClauses, fmt.Sprintf("%s != %s", colName, placeholder))
-				args = append(args, strings.TrimPrefix(val, "neq."))
-				argIdx++
-			} else if strings.HasPrefix(val, "gt.") {
-				whereClauses = append(whereClauses, fmt.Sprintf("%s > %s", colName, placeholder))
-				args = append(args, strings.TrimPrefix(val, "gt."))
-				argIdx++
-			} else if strings.HasPrefix(val, "gte.") {
-				whereClauses = append(whereClauses, fmt.Sprintf("%s >= %s", colName, placeholder))
-				args = append(args, strings.TrimPrefix(val, "gte."))
-				argIdx++
-			} else if strings.HasPrefix(val, "lt.") {
-				whereClauses = append(whereClauses, fmt.Sprintf("%s < %s", colName, placeholder))
-				args = append(args, strings.TrimPrefix(val, "lt."))
-				argIdx++
-			} else if strings.HasPrefix(val, "lte.") {
-				whereClauses = append(whereClauses, fmt.Sprintf("%s <= %s", colName, placeholder))
-				args = append(args, strings.TrimPrefix(val, "lte."))
-				argIdx++
-			} else if strings.HasPrefix(val, "like.") {
-				whereClauses = append(whereClauses, fmt.Sprintf("%s LIKE %s", colName, placeholder))
-				args = append(args, strings.TrimPrefix(val, "like."))
-				argIdx++
-			} else if strings.HasPrefix(val, "ilike.") {
-				if dbType == "postgres" {
-					whereClauses = append(whereClauses, fmt.Sprintf("%s ILIKE %s", colName, placeholder))
-				} else {
-					whereClauses = append(whereClauses, fmt.Sprintf("LOWER(%s) LIKE LOWER(%s)", colName, placeholder))
-				}
-				args = append(args, strings.TrimPrefix(val, "ilike."))
-				argIdx++
-			} else if val == "is.null" {
-				whereClauses = append(whereClauses, fmt.Sprintf("%s IS NULL", colName))
-			} else if val == "is.notnull" {
-				whereClauses = append(whereClauses, fmt.Sprintf("%s IS NOT NULL", colName))
-			} else {
-				whereClauses = append(whereClauses, fmt.Sprintf("%s = %s", colName, placeholder))
-				args = append(args, val)
-				argIdx++
+				validCols = append(validCols, col)
 			}
 		}
 	}
 
-	whereSQL := ""
-	if len(whereClauses) > 0 {
-		whereSQL = " WHERE " + strings.Join(whereClauses, " AND ")
+	gen, err := sqldialect.GetGenerator(dbType)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported database dialect: "+dbType)
+		return
 	}
+
+	filters := parseInstantFilters(q)
 
 	// Order by
-	orderSQL := ""
+	var orderBys []sqldialect.OrderBy
 	orderParam := q.Get("order")
 	if orderParam == "" {
 		orderParam = q.Get("sort")
@@ -264,36 +239,42 @@ func (h *InstantCRUDHandler) QueryTable(w http.ResponseWriter, r *http.Request) 
 	if orderParam != "" {
 		parts := strings.Split(orderParam, ".")
 		col := parts[0]
-		direction := "ASC"
+		direction := sqldialect.OrderAsc
 		if strings.HasPrefix(col, "-") {
 			col = strings.TrimPrefix(col, "-")
-			direction = "DESC"
+			direction = sqldialect.OrderDesc
 		} else if len(parts) > 1 && strings.ToUpper(parts[1]) == "DESC" {
-			direction = "DESC"
+			direction = sqldialect.OrderDesc
 		}
 		if identifierRegex.MatchString(col) {
-			orderSQL = fmt.Sprintf(" ORDER BY %s %s", quoteIdentifier(dbType, col), direction)
+			orderBys = append(orderBys, sqldialect.OrderBy{Column: col, Direction: direction})
 		}
 	}
 
 	// Count total
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", quoteIdentifier(dbType, tableName), whereSQL)
-	var total int64
-	_ = db.QueryRowContext(r.Context(), countQuery, args...).Scan(&total)
-
-	// Build pagination placeholders
-	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
-	offsetPlaceholder := fmt.Sprintf("$%d", argIdx+1)
-	if dbType == "mysql" {
-		limitPlaceholder = "?"
-		offsetPlaceholder = "?"
+	countSpec := sqldialect.QuerySpec{
+		Table:   tableName,
+		Columns: []string{"COUNT(*)"},
+		Filters: filters,
 	}
-	args = append(args, limit, offset)
+	countSQL, countArgs, _ := gen.BuildSelect(countSpec)
+	var total int64
+	_ = db.QueryRowContext(r.Context(), countSQL, countArgs...).Scan(&total)
 
-	querySQL := fmt.Sprintf(
-		"SELECT %s FROM %s%s%s LIMIT %s OFFSET %s",
-		columns, quoteIdentifier(dbType, tableName), whereSQL, orderSQL, limitPlaceholder, offsetPlaceholder,
-	)
+	// Select rows
+	querySpec := sqldialect.QuerySpec{
+		Table:   tableName,
+		Columns: validCols,
+		Filters: filters,
+		OrderBy: orderBys,
+		Limit:   limit,
+		Offset:  offset,
+	}
+	querySQL, args, err := gen.BuildSelect(querySpec)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to assemble query: "+err.Error())
+		return
+	}
 
 	rows, err := db.QueryContext(r.Context(), querySQL, args...)
 	if err != nil {
@@ -380,15 +361,25 @@ func (h *InstantCRUDHandler) GetRow(w http.ResponseWriter, r *http.Request) {
 	}
 	defer closeDB()
 
-	paramPlaceholder := "$1"
-	if dbType == "mysql" {
-		paramPlaceholder = "?"
+	gen, err := sqldialect.GetGenerator(dbType)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported database: "+dbType)
+		return
 	}
 
-	querySQL := fmt.Sprintf("SELECT * FROM %s WHERE %s = %s LIMIT 1",
-		quoteIdentifier(dbType, tableName), quoteIdentifier(dbType, pk), paramPlaceholder)
+	querySQL, args, err := gen.BuildSelect(sqldialect.QuerySpec{
+		Table: tableName,
+		Filters: []sqldialect.FilterCondition{
+			{Column: pk, Operator: sqldialect.OpEq, Value: id},
+		},
+		Limit: 1,
+	})
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to assemble query: "+err.Error())
+		return
+	}
 
-	rows, err := db.QueryContext(r.Context(), querySQL, id)
+	rows, err := db.QueryContext(r.Context(), querySQL, args...)
 	if err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Query error: %v", err))
 		return
@@ -451,23 +442,16 @@ func (h *InstantCRUDHandler) InsertRow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cols := []string{}
-	placeholders := []string{}
-	values := []interface{}{}
-	idx := 1
-
+	validValues := make(map[string]any)
 	for k, v := range body {
-		if !identifierRegex.MatchString(k) {
-			continue
+		if identifierRegex.MatchString(k) {
+			validValues[k] = v
 		}
-		cols = append(cols, quoteIdentifier(dbType, k))
-		if dbType == "mysql" {
-			placeholders = append(placeholders, "?")
-		} else {
-			placeholders = append(placeholders, fmt.Sprintf("$%d", idx))
-		}
-		values = append(values, v)
-		idx++
+	}
+
+	if len(validValues) == 0 {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "No valid columns provided")
+		return
 	}
 
 	db, closeDB, err := h.getDB(connID, dbType, connStr)
@@ -477,12 +461,20 @@ func (h *InstantCRUDHandler) InsertRow(w http.ResponseWriter, r *http.Request) {
 	}
 	defer closeDB()
 
-	insertSQL := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s)",
-		quoteIdentifier(dbType, tableName),
-		strings.Join(cols, ", "),
-		strings.Join(placeholders, ", "),
-	)
+	gen, err := sqldialect.GetGenerator(dbType)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported database: "+dbType)
+		return
+	}
+
+	insertSQL, values, err := gen.BuildInsert(sqldialect.InsertSpec{
+		Table:  tableName,
+		Values: validValues,
+	})
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Insert failed: %v", err))
+		return
+	}
 
 	_, err = db.ExecContext(r.Context(), insertSQL, values...)
 	if err != nil {
@@ -532,24 +524,14 @@ func (h *InstantCRUDHandler) UpdateRow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	setClauses := []string{}
-	values := []interface{}{}
-	idx := 1
-
+	validValues := make(map[string]any)
 	for k, v := range body {
-		if !identifierRegex.MatchString(k) || k == pk {
-			continue
+		if identifierRegex.MatchString(k) && k != pk {
+			validValues[k] = v
 		}
-		if dbType == "mysql" {
-			setClauses = append(setClauses, fmt.Sprintf("%s = ?", quoteIdentifier(dbType, k)))
-		} else {
-			setClauses = append(setClauses, fmt.Sprintf("%s = $%d", quoteIdentifier(dbType, k), idx))
-		}
-		values = append(values, v)
-		idx++
 	}
 
-	if len(setClauses) == 0 {
+	if len(validValues) == 0 {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "No fields to update")
 		return
 	}
@@ -561,19 +543,23 @@ func (h *InstantCRUDHandler) UpdateRow(w http.ResponseWriter, r *http.Request) {
 	}
 	defer closeDB()
 
-	pkPlaceholder := fmt.Sprintf("$%d", idx)
-	if dbType == "mysql" {
-		pkPlaceholder = "?"
+	gen, err := sqldialect.GetGenerator(dbType)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported database: "+dbType)
+		return
 	}
-	values = append(values, id)
 
-	updateSQL := fmt.Sprintf(
-		"UPDATE %s SET %s WHERE %s = %s",
-		quoteIdentifier(dbType, tableName),
-		strings.Join(setClauses, ", "),
-		quoteIdentifier(dbType, pk),
-		pkPlaceholder,
-	)
+	updateSQL, values, err := gen.BuildUpdate(sqldialect.UpdateSpec{
+		Table:  tableName,
+		Values: validValues,
+		Filters: []sqldialect.FilterCondition{
+			{Column: pk, Operator: sqldialect.OpEq, Value: id},
+		},
+	})
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Update failed: %v", err))
+		return
+	}
 
 	res, err := db.ExecContext(r.Context(), updateSQL, values...)
 	if err != nil {
@@ -630,15 +616,24 @@ func (h *InstantCRUDHandler) DeleteRow(w http.ResponseWriter, r *http.Request) {
 	}
 	defer closeDB()
 
-	placeholder := "$1"
-	if dbType == "mysql" {
-		placeholder = "?"
+	gen, err := sqldialect.GetGenerator(dbType)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported database: "+dbType)
+		return
 	}
 
-	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE %s = %s",
-		quoteIdentifier(dbType, tableName), quoteIdentifier(dbType, pk), placeholder)
+	deleteSQL, args, err := gen.BuildDelete(sqldialect.DeleteSpec{
+		Table: tableName,
+		Filters: []sqldialect.FilterCondition{
+			{Column: pk, Operator: sqldialect.OpEq, Value: id},
+		},
+	})
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Delete failed: %v", err))
+		return
+	}
 
-	res, err := db.ExecContext(r.Context(), deleteSQL, id)
+	res, err := db.ExecContext(r.Context(), deleteSQL, args...)
 	if err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Delete failed: %v", err))
 		return
@@ -699,10 +694,14 @@ func dbTypeDriver(dbType string) string {
 }
 
 func quoteIdentifier(dbType, ident string) string {
-	if dbType == "mysql" {
-		return "`" + ident + "`"
+	gen, err := sqldialect.GetGenerator(dbType)
+	if err != nil {
+		if dbType == "mysql" {
+			return "`" + ident + "`"
+		}
+		return `"` + ident + `"`
 	}
-	return `"` + ident + `"`
+	return gen.QuoteIdentifier(ident)
 }
 
 // ExecuteTableCRUD dispatches a request directly to the table CRUD handlers for a given connection
