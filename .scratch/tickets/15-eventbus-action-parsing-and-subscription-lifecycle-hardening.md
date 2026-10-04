@@ -4,9 +4,9 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [ ] A domain method `ParseActionType(str string) ActionType` is introduced in `internal/core/eventbus/event.go` that safely maps uppercase, lowercase, and alias mutation actions to canonical domain action types.
-- [ ] Console publisher and registry components delegate string action parsing to `ParseActionType`, eliminating duplicated ad-hoc switch cascades.
-- [ ] `RedisEventBus.Subscribe` correctly handles context cancellation and cleans up the active Pub/Sub subscription and channels without leaving orphaned goroutines or connections.
-- [ ] Unit tests in `bus_test.go` and `integration_test.go` verify action parsing accuracy and leak-free cancellation.
+- [x] A domain method `ParseActionType(str string) ActionType` is introduced in `internal/core/eventbus/event.go` that safely maps uppercase, lowercase, and alias mutation actions to canonical domain action types.
+- [x] Console publisher and registry components delegate string action parsing to `ParseActionType`, eliminating duplicated ad-hoc switch cascades.
+- [x] `RedisEventBus.Subscribe` correctly handles context cancellation and cleans up the active Pub/Sub subscription and channels without leaving orphaned goroutines or connections.
+- [x] Unit tests in `bus_test.go` and `integration_test.go` verify action parsing accuracy and leak-free cancellation.

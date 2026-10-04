@@ -4,8 +4,8 @@
 
 **Blocked by:** Ticket 13: Core SQL Dialect Engine Remediation and Parameter Normalization
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [ ] Instant CRUD row count query assembly (`BuildSelect`) checks errors explicitly and writes a standard JSON 500 response if query generation fails, preventing empty SQL query execution against target databases.
-- [ ] Instant CRUD endpoints (`GET /api/v1/instant/{connId}/{table}`) successfully execute sorted and filtered queries against target databases, returning authentic pagination metadata (`total`, `limit`, `offset`, `returned`).
-- [ ] Integration and unit tests verify that invalid table schemas or query parameters generate clear error messages without server panics.
+- [x] Instant CRUD row count query assembly (`BuildSelect`) checks errors explicitly and writes a standard JSON 500 response if query generation fails, preventing empty SQL query execution against target databases.
+- [x] Instant CRUD endpoints (`GET /api/v1/instant/{connId}/{table}`) successfully execute sorted and filtered queries against target databases, returning authentic pagination metadata (`total`, `limit`, `offset`, `returned`).
+- [x] Integration and unit tests verify that invalid table schemas or query parameters generate clear error messages without server panics.

@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [ ] Edge proxy binds to port 443 with TLS termination and redirects all port 80 HTTP traffic to HTTPS.
-- [ ] Dedicated virtual host configurations route consumer API requests to Gateway upstream (port 8000) and web console traffic to GUI upstream (port 8002).
-- [ ] Administrative management endpoints (`/admin-api/`) are protected by active CIDR allowlisting rules (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.1`), denying unauthorized public traffic by default per `docs/BEST_PRACTICES.md`.
-- [ ] Static synthetic `/healthz` is replaced with authentic proxy pass-through to the backend gateway liveness check.
-- [ ] Production compose stack mounts SSL certificates and verifies syntax with `nginx -t` cleanly in the automated deployment validation suite.
+- [x] Edge proxy binds to port 443 with TLS termination and redirects all port 80 HTTP traffic to HTTPS.
+- [x] Dedicated virtual host configurations route consumer API requests to Gateway upstream (port 8000) and web console traffic to GUI upstream (port 8002).
+- [x] Administrative management endpoints (`/admin-api/`) are protected by active CIDR allowlisting rules (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.1`), denying unauthorized public traffic by default per `docs/BEST_PRACTICES.md`.
+- [x] Static synthetic `/healthz` is replaced with authentic proxy pass-through to the backend gateway liveness check.
+- [x] Production compose stack mounts SSL certificates and verifies syntax with `nginx -t` cleanly in the automated deployment validation suite.
