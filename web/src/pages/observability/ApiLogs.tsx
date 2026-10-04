@@ -1,16 +1,35 @@
-import { useState, useEffect } from 'react';
-import { gatewayApi, ApiRequest } from '../../api/gatewayApi';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { gatewayApi, ApiRequest, PaginationMeta } from '../../api/gatewayApi';
 import { useToast } from '../../components/Toast';
+import { Pagination } from '../../components/Pagination';
 import {
     IconRefresh, IconSearch, IconClose, IconCopy, IconCheck
 } from '../../components/Icons';
 
 export default function ApiLogsPage() {
+    const [searchParams, setSearchParams] = useSearchParams();
+
+    // Parse initial query params from URL
+    const pageParam = parseInt(searchParams.get('page') || '1', 10);
+    const limitParam = parseInt(searchParams.get('limit') || '25', 10);
+    const searchParam = searchParams.get('search') || '';
+    const methodParam = searchParams.get('method') || 'all';
+    const statusParam = searchParams.get('status') || 'all';
+
     const [requests, setRequests] = useState<ApiRequest[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
-    const [methodFilter, setMethodFilter] = useState('all');
+    const [searchTerm, setSearchTerm] = useState(searchParam);
+    const [statusFilter, setStatusFilter] = useState(statusParam);
+    const [methodFilter, setMethodFilter] = useState(methodParam);
+    const [page, setPage] = useState(pageParam > 0 ? pageParam : 1);
+    const [pageSize, setPageSize] = useState(limitParam > 0 ? limitParam : 25);
+    const [pagination, setPagination] = useState<PaginationMeta>({
+        total: 0,
+        page: 1,
+        limit: 25,
+        total_pages: 0
+    });
 
     // Selected Request for Inspector Drawer
     const [selectedReq, setSelectedReq] = useState<ApiRequest | null>(null);
@@ -18,10 +37,40 @@ export default function ApiLogsPage() {
     const [isCopied, setIsCopied] = useState(false);
 
     const toast = useToast();
+    const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    const loadRequests = useCallback(async (params?: { page: number; limit: number; search: string; method: string; status: string }) => {
+        setIsLoading(true);
+        try {
+            const query = params || { page, limit: pageSize, search: searchTerm, method: methodFilter, status: statusFilter };
+            const res = await gatewayApi.getRequests(query);
+            setRequests(res.data || []);
+            if (res.pagination) {
+                setPagination(res.pagination);
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to load request logs');
+        } finally {
+            setIsLoading(false);
+        }
+    }, [page, pageSize, searchTerm, methodFilter, statusFilter, toast]);
+
+    // Sync with URL query parameters on navigation
     useEffect(() => {
-        loadRequests();
-    }, []);
+        const p = parseInt(searchParams.get('page') || '1', 10);
+        const l = parseInt(searchParams.get('limit') || '25', 10);
+        const s = searchParams.get('search') || '';
+        const m = searchParams.get('method') || 'all';
+        const st = searchParams.get('status') || 'all';
+
+        setPage(p > 0 ? p : 1);
+        setPageSize(l > 0 ? l : 25);
+        setSearchTerm(s);
+        setMethodFilter(m);
+        setStatusFilter(st);
+
+        loadRequests({ page: p > 0 ? p : 1, limit: l > 0 ? l : 25, search: s, method: m, status: st });
+    }, [searchParams, loadRequests]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -33,16 +82,52 @@ export default function ApiLogsPage() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [selectedReq]);
 
-    const loadRequests = async () => {
-        setIsLoading(true);
-        try {
-            const res = await gatewayApi.getRequests(100);
-            setRequests(res.data || []);
-        } catch (err: any) {
-            toast.error(err.message || 'Failed to load request logs');
-        } finally {
-            setIsLoading(false);
+    const updateQueryParams = (updates: { page?: number; limit?: number; search?: string; method?: string; status?: string }) => {
+        const nextParams = new URLSearchParams(searchParams);
+
+        const nextP = updates.page !== undefined ? updates.page : page;
+        const nextL = updates.limit !== undefined ? updates.limit : pageSize;
+        const nextS = updates.search !== undefined ? updates.search : searchTerm;
+        const nextM = updates.method !== undefined ? updates.method : methodFilter;
+        const nextSt = updates.status !== undefined ? updates.status : statusFilter;
+
+        if (nextP > 1) nextParams.set('page', String(nextP)); else nextParams.delete('page');
+        if (nextL !== 25) nextParams.set('limit', String(nextL)); else nextParams.delete('limit');
+        if (nextS) nextParams.set('search', nextS); else nextParams.delete('search');
+        if (nextM && nextM !== 'all') nextParams.set('method', nextM); else nextParams.delete('method');
+        if (nextSt && nextSt !== 'all') nextParams.set('status', nextSt); else nextParams.delete('status');
+
+        setSearchParams(nextParams);
+    };
+
+    const handleSearchInput = (val: string) => {
+        setSearchTerm(val);
+        if (searchDebounceRef.current) {
+            clearTimeout(searchDebounceRef.current);
         }
+        searchDebounceRef.current = setTimeout(() => {
+            updateQueryParams({ search: val, page: 1 });
+        }, 300);
+    };
+
+    const handleMethodSelect = (m: string) => {
+        setMethodFilter(m);
+        updateQueryParams({ method: m, page: 1 });
+    };
+
+    const handleStatusSelect = (st: string) => {
+        setStatusFilter(st);
+        updateQueryParams({ status: st, page: 1 });
+    };
+
+    const handlePageChange = (newPage: number) => {
+        setPage(newPage);
+        updateQueryParams({ page: newPage });
+    };
+
+    const handlePageSizeChange = (newSize: number) => {
+        setPageSize(newSize);
+        updateQueryParams({ limit: newSize, page: 1 });
     };
 
     const handleCopyCurl = (req: ApiRequest) => {
@@ -52,30 +137,6 @@ export default function ApiLogsPage() {
         toast.success('cURL command copied to clipboard');
         setTimeout(() => setIsCopied(false), 2000);
     };
-
-    const filteredRequests = requests.filter(r => {
-        if (searchTerm) {
-            const term = searchTerm.toLowerCase();
-            const matchesPath = r.path?.toLowerCase().includes(term);
-            const matchesClient = r.client_ip?.toLowerCase().includes(term);
-            const matchesUser = r.username?.toLowerCase().includes(term);
-            if (!matchesPath && !matchesClient && !matchesUser) return false;
-        }
-
-        if (methodFilter !== 'all' && r.method !== methodFilter) {
-            return false;
-        }
-
-        if (statusFilter !== 'all') {
-            const code = r.status_code || 200;
-            if (statusFilter === '2xx' && (code < 200 || code >= 300)) return false;
-            if (statusFilter === '3xx' && (code < 300 || code >= 400)) return false;
-            if (statusFilter === '4xx' && (code < 400 || code >= 500)) return false;
-            if (statusFilter === '5xx' && code < 500) return false;
-        }
-
-        return true;
-    });
 
     const getStatusBadge = (code: number) => {
         let bg = '#eff6ff';
@@ -149,7 +210,7 @@ export default function ApiLogsPage() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px' }}>
-                    <button className="btn-header-refresh" onClick={loadRequests} disabled={isLoading}>
+                    <button className="btn-header-refresh" onClick={() => loadRequests()} disabled={isLoading}>
                         <IconRefresh width={14} height={14} />
                         <span>Refresh</span>
                     </button>
@@ -186,7 +247,7 @@ export default function ApiLogsPage() {
                             type="text"
                             placeholder="Filter by path, IP, or consumer..."
                             value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
+                            onChange={e => handleSearchInput(e.target.value)}
                             style={{ border: 'none', background: 'transparent', fontSize: '13px', outline: 'none', width: '100%', color: '#0f172a' }}
                         />
                     </div>
@@ -195,7 +256,7 @@ export default function ApiLogsPage() {
                     <select
                         className="select select-filter"
                         value={methodFilter}
-                        onChange={e => setMethodFilter(e.target.value)}
+                        onChange={e => handleMethodSelect(e.target.value)}
                     >
                         <option value="all">All Methods</option>
                         <option value="GET">GET</option>
@@ -209,7 +270,7 @@ export default function ApiLogsPage() {
                     <select
                         className="select select-filter"
                         value={statusFilter}
-                        onChange={e => setStatusFilter(e.target.value)}
+                        onChange={e => handleStatusSelect(e.target.value)}
                     >
                         <option value="all">All Status Codes</option>
                         <option value="2xx">2xx Success</option>
@@ -220,7 +281,7 @@ export default function ApiLogsPage() {
                 </div>
 
                 <div style={{ fontSize: '13px', color: '#64748b' }}>
-                    Showing <strong>{filteredRequests.length}</strong> recorded requests
+                    Total: <strong style={{ color: '#0f172a' }}>{pagination.total.toLocaleString()}</strong> recorded requests
                 </div>
             </div>
 
@@ -253,14 +314,14 @@ export default function ApiLogsPage() {
                                         <div style={{ marginTop: '12px', color: '#64748b' }}>Loading logs...</div>
                                     </td>
                                 </tr>
-                            ) : filteredRequests.length === 0 ? (
+                            ) : requests.length === 0 ? (
                                 <tr>
                                     <td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
                                         No API requests matched the filter criteria.
                                     </td>
                                 </tr>
                             ) : (
-                                filteredRequests.map(req => (
+                                requests.map(req => (
                                     <tr
                                         key={req.id}
                                         onClick={() => setSelectedReq(req)}
@@ -300,6 +361,18 @@ export default function ApiLogsPage() {
                         </tbody>
                     </table>
                 </div>
+
+                {/* Pagination Controls */}
+                <Pagination
+                    currentPage={pagination.page}
+                    totalPages={pagination.total_pages}
+                    totalItems={pagination.total}
+                    pageSize={pagination.limit}
+                    pageSizeOptions={[10, 25, 50, 100]}
+                    onPageChange={handlePageChange}
+                    onPageSizeChange={handlePageSizeChange}
+                    itemName="requests"
+                />
             </div>
 
             {/* ======================================================== */}

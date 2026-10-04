@@ -100,6 +100,11 @@ func (s *Service) GetAuditLogs(eventType string, limit int) ([]registry.AuditLog
 	return s.registry.ListAuditLogs(eventType, limit)
 }
 
+// GetAuditLogsPaginated returns filtered and paginated administrative audit logs
+func (s *Service) GetAuditLogsPaginated(eventType, search string, page, limit int) ([]registry.AuditLog, int, error) {
+	return s.registry.ListAuditLogsPaginated(eventType, search, page, limit)
+}
+
 // GetRequests returns parsed API request logs for Kong-style explorer
 func (s *Service) GetRequests(limit int) ([]registry.RecentRequest, error) {
 	if limit <= 0 {
@@ -107,3 +112,9 @@ func (s *Service) GetRequests(limit int) ([]registry.RecentRequest, error) {
 	}
 	return s.registry.GetRecentRequests(limit)
 }
+
+// GetRequestsPaginated returns filtered and paginated API request logs
+func (s *Service) GetRequestsPaginated(filter registry.RequestFilter, page, limit int) ([]registry.RecentRequest, int, error) {
+	return s.registry.GetRecentRequestsPaginated(filter, page, limit)
+}
+

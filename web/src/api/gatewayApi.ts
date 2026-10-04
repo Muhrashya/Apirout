@@ -281,9 +281,29 @@ export const gatewayApi = {
         apiClient.delete(`/services/${serviceId}/outbound-auth`),
 
     // Monitoring & Request Logs (Kong Analytics Explorer)
-    getRequests: (limit?: number) => apiClient.get<{ data: ApiRequest[] }>(`/monitoring/requests?limit=${limit || 100}`),
+    getRequests: (params?: { page?: number; limit?: number; search?: string; method?: string; status?: string } | number) => {
+        const q = new URLSearchParams();
+        if (typeof params === 'number') {
+            q.set('limit', String(params));
+        } else if (params) {
+            if (params.page) q.set('page', String(params.page));
+            if (params.limit) q.set('limit', String(params.limit));
+            if (params.search) q.set('search', params.search);
+            if (params.method && params.method !== 'all') q.set('method', params.method);
+            if (params.status && params.status !== 'all') q.set('status', params.status);
+        }
+        const queryStr = q.toString() ? `?${q.toString()}` : '';
+        return apiClient.get<{ data: ApiRequest[]; pagination: PaginationMeta }>(`/monitoring/requests${queryStr}`);
+    },
     getDashboardStats: () => apiClient.get<any>('/dashboard/stats'),
 };
+
+export interface PaginationMeta {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+}
 
 export interface AuthPluginConfig {
     id: string;

@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -63,6 +64,57 @@ func (r *Registry) ListAuditLogs(eventType string, limit int) ([]AuditLog, error
 		)
 	}
 	return logs, err
+}
+
+// ListAuditLogsPaginated returns paginated administrative audit logs (excluding api_request) with optional filtering
+func (r *Registry) ListAuditLogsPaginated(eventType, search string, page, limit int) ([]AuditLog, int, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+
+	whereClause := "WHERE event_type != 'api_request'"
+	var args []interface{}
+
+	if eventType != "" && strings.ToLower(eventType) != "all" {
+		whereClause += " AND event_type = ?"
+		args = append(args, eventType)
+	}
+
+	if search != "" {
+		searchTerm := "%" + search + "%"
+		whereClause += " AND (ip_address LIKE ? OR details LIKE ? OR error_message LIKE ? OR event_type LIKE ?)"
+		args = append(args, searchTerm, searchTerm, searchTerm, searchTerm)
+	}
+
+	// 1. Total Count
+	countQuery := r.db.Rebind("SELECT COUNT(*) FROM audit_logs " + whereClause)
+	var total int
+	if err := r.db.Get(&total, countQuery, args...); err != nil {
+		return nil, 0, err
+	}
+
+	if total == 0 {
+		return []AuditLog{}, 0, nil
+	}
+
+	// 2. Paginated Slice
+	selectCols := "id, event_type, user_id, api_client_id, endpoint_id, ip_address, details, success, duration_ms, error_message, timestamp"
+	selectQuery := r.db.Rebind("SELECT " + selectCols + " FROM audit_logs " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?")
+	selectArgs := append(args, limit, offset)
+
+	var logs []AuditLog
+	if err := r.db.Select(&logs, selectQuery, selectArgs...); err != nil {
+		return nil, 0, err
+	}
+
+	return logs, total, nil
 }
 
 // Metric represents a metric entry
@@ -328,6 +380,117 @@ type RecentRequest struct {
 	AuthType          string `json:"auth_type"`
 	GatewayLatencyMs  int    `json:"gateway_latency_ms"`
 	UpstreamLatencyMs int    `json:"upstream_latency_ms"`
+}
+
+// RequestFilter contains filter parameters for API request logs
+type RequestFilter struct {
+	Search      string
+	Method      string
+	StatusGroup string
+}
+
+// GetRecentRequestsPaginated returns filtered and paginated API request logs along with total count
+func (r *Registry) GetRecentRequestsPaginated(filter RequestFilter, page, limit int) ([]RecentRequest, int, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+
+	whereClause := "WHERE event_type = 'api_request'"
+	var args []interface{}
+
+	if filter.Method != "" && strings.ToUpper(filter.Method) != "ALL" {
+		whereClause += " AND details LIKE ?"
+		args = append(args, `%"method":"`+strings.ToUpper(filter.Method)+`"%`)
+	}
+
+	if filter.StatusGroup != "" && strings.ToLower(filter.StatusGroup) != "all" {
+		sg := strings.ToLower(filter.StatusGroup)
+		switch sg {
+		case "2xx":
+			whereClause += " AND (details LIKE ? OR details LIKE ?)"
+			args = append(args, `%"status_code":2%`, `%"status":2%`)
+		case "3xx":
+			whereClause += " AND (details LIKE ? OR details LIKE ?)"
+			args = append(args, `%"status_code":3%`, `%"status":3%`)
+		case "4xx":
+			whereClause += " AND (details LIKE ? OR details LIKE ?)"
+			args = append(args, `%"status_code":4%`, `%"status":4%`)
+		case "5xx":
+			whereClause += " AND (details LIKE ? OR details LIKE ?)"
+			args = append(args, `%"status_code":5%`, `%"status":5%`)
+		default:
+			whereClause += " AND (details LIKE ? OR details LIKE ?)"
+			args = append(args, `%"status_code":`+sg+`%`, `%"status":`+sg+`%`)
+		}
+	}
+
+	if filter.Search != "" {
+		searchTerm := "%" + filter.Search + "%"
+		whereClause += " AND (ip_address LIKE ? OR details LIKE ? OR error_message LIKE ?)"
+		args = append(args, searchTerm, searchTerm, searchTerm)
+	}
+
+	// 1. Get Total Count
+	countQuery := r.db.Rebind("SELECT COUNT(*) FROM audit_logs " + whereClause)
+	var total int
+	if err := r.db.Get(&total, countQuery, args...); err != nil {
+		return nil, 0, err
+	}
+
+	if total == 0 {
+		return []RecentRequest{}, 0, nil
+	}
+
+	// 2. Get Paginated Slice
+	selectCols := "id, timestamp, event_type, user_id, api_client_id, endpoint_id, ip_address, details, success, duration_ms, error_message"
+	selectQuery := r.db.Rebind("SELECT " + selectCols + " FROM audit_logs " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?")
+	selectArgs := append(args, limit, offset)
+
+	rows, err := r.db.Queryx(selectQuery, selectArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var results []RecentRequest
+	for rows.Next() {
+		var rr RecentRequest
+		if err := rows.StructScan(&rr); err != nil {
+			return nil, 0, err
+		}
+		// Resolve username - check user_id first, then api_client_id
+		if rr.UserID != nil && *rr.UserID != "" {
+			if user, _ := r.GetUserByID(*rr.UserID); user != nil {
+				rr.Username = user.Email
+			} else {
+				rr.Username = "Unknown User"
+			}
+		} else if rr.APIClientID != nil && *rr.APIClientID != "" {
+			if client, _ := r.GetAPIClientByID(*rr.APIClientID); client != nil {
+				rr.Username = "[API] " + client.Username
+			} else {
+				rr.Username = "Unknown API Client"
+			}
+		} else {
+			rr.Username = "Anonymous"
+		}
+		// Parse details JSON for method, path, status, ip
+		r.parseRequestDetails(&rr)
+		// Map new IP column to ClientIP frontend prop
+		if rr.IPAddress != nil && *rr.IPAddress != "" {
+			rr.ClientIP = *rr.IPAddress
+		}
+		results = append(results, rr)
+	}
+
+	return results, total, nil
 }
 
 // GetRecentRequests returns recent API requests for dashboard

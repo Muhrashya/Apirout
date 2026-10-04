@@ -138,3 +138,217 @@ func TestMetricsSummaryFromAuditLogs(t *testing.T) {
 		t.Errorf("Expected top endpoint request_count == 10, got %d", top[0].RequestCount)
 	}
 }
+
+func TestGetRecentRequestsPaginated(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test_paginated_requests.db")
+
+	reg, err := NewWithSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test registry: %v", err)
+	}
+	defer reg.db.Close()
+
+	if err := reg.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+	if err := reg.MigrateSchema(); err != nil {
+		t.Fatalf("Failed to migrate schema: %v", err)
+	}
+
+	// Insert 15 test requests:
+	// - 10x 200 GET /api/v1/users
+	// - 3x 404 POST /api/v1/orders
+	// - 2x 500 GET /api/v1/checkout
+	for i := 1; i <= 15; i++ {
+		status := 200
+		method := "GET"
+		path := "/api/v1/users"
+		if i > 10 && i <= 13 {
+			status = 404
+			method = "POST"
+			path = "/api/v1/orders"
+		} else if i > 13 {
+			status = 500
+			method = "GET"
+			path = "/api/v1/checkout"
+		}
+
+		dur := i * 5
+		detailsJSON, _ := json.Marshal(map[string]interface{}{
+			"status_code": status,
+			"method":      method,
+			"path":        path,
+			"client_ip":   fmt.Sprintf("192.168.1.%d", i),
+		})
+		ip := fmt.Sprintf("192.168.1.%d", i)
+
+		log := &AuditLog{
+			ID:         fmt.Sprintf("req-%d", i),
+			EventType:  "api_request",
+			IPAddress:  &ip,
+			DurationMs: &dur,
+			Success:    status < 400,
+			Details:    string(detailsJSON),
+			Timestamp:  time.Now().Add(time.Duration(i) * time.Minute),
+		}
+		if err := reg.CreateAuditLog(log); err != nil {
+			t.Fatalf("Failed to insert log %d: %v", i, err)
+		}
+	}
+
+	// 1. Test Default Page 1, Limit 10 (Total 15, should return 10)
+	reqs, total, err := reg.GetRecentRequestsPaginated(RequestFilter{}, 1, 10)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if total != 15 {
+		t.Errorf("Expected total 15, got %d", total)
+	}
+	if len(reqs) != 10 {
+		t.Errorf("Expected 10 items on page 1, got %d", len(reqs))
+	}
+
+	// 2. Test Page 2, Limit 10 (Total 15, should return 5)
+	reqsPage2, total2, err := reg.GetRecentRequestsPaginated(RequestFilter{}, 2, 10)
+	if err != nil {
+		t.Fatalf("Unexpected error on page 2: %v", err)
+	}
+	if total2 != 15 {
+		t.Errorf("Expected total 15 on page 2, got %d", total2)
+	}
+	if len(reqsPage2) != 5 {
+		t.Errorf("Expected 5 items on page 2, got %d", len(reqsPage2))
+	}
+
+	// 3. Test Filter by Method "POST" (should return 3)
+	reqsPost, totalPost, err := reg.GetRecentRequestsPaginated(RequestFilter{Method: "POST"}, 1, 10)
+	if err != nil {
+		t.Fatalf("Unexpected error on filter POST: %v", err)
+	}
+	if totalPost != 3 {
+		t.Errorf("Expected total 3 for POST, got %d", totalPost)
+	}
+	if len(reqsPost) != 3 {
+		t.Errorf("Expected 3 POST items, got %d", len(reqsPost))
+	}
+
+	// 4. Test Filter by Status "5xx" (should return 2)
+	reqs5xx, total5xx, err := reg.GetRecentRequestsPaginated(RequestFilter{StatusGroup: "5xx"}, 1, 10)
+	if err != nil {
+		t.Fatalf("Unexpected error on filter 5xx: %v", err)
+	}
+	if total5xx != 2 {
+		t.Errorf("Expected total 2 for 5xx, got %d", total5xx)
+	}
+	if len(reqs5xx) != 2 {
+		t.Errorf("Expected 2 5xx items, got %d", len(reqs5xx))
+	}
+
+	// 5. Test Filter by Search "orders" (should return 3)
+	reqsSearch, totalSearch, err := reg.GetRecentRequestsPaginated(RequestFilter{Search: "orders"}, 1, 10)
+	if err != nil {
+		t.Fatalf("Unexpected error on search orders: %v", err)
+	}
+	if totalSearch != 3 {
+		t.Errorf("Expected total 3 for search orders, got %d", totalSearch)
+	}
+	if len(reqsSearch) != 3 {
+		t.Errorf("Expected 3 items for search orders, got %d", len(reqsSearch))
+	}
+}
+
+func TestListAuditLogsPaginated(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test_paginated_audit.db")
+
+	reg, err := NewWithSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test registry: %v", err)
+	}
+	defer reg.db.Close()
+
+	if err := reg.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+	if err := reg.MigrateSchema(); err != nil {
+		t.Fatalf("Failed to migrate schema: %v", err)
+	}
+
+	// Insert 12 administrative audit logs (and 3 api_request logs that should be excluded)
+	// - 5x admin_login_success
+	// - 4x route_create
+	// - 3x service_update
+	// - 3x api_request (must be excluded)
+	for i := 1; i <= 5; i++ {
+		_ = reg.CreateAuditLog(&AuditLog{
+			ID:        fmt.Sprintf("log-admin-%d", i),
+			EventType: "admin_login_success",
+			Details:   fmt.Sprintf(`{"email":"admin%d@example.com"}`, i),
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+		})
+	}
+	for i := 1; i <= 4; i++ {
+		_ = reg.CreateAuditLog(&AuditLog{
+			ID:        fmt.Sprintf("log-route-%d", i),
+			EventType: "route_create",
+			Details:   fmt.Sprintf(`{"route":"route-%d"}`, i),
+			Timestamp: time.Now().Add(time.Duration(i+10) * time.Minute),
+		})
+	}
+	for i := 1; i <= 3; i++ {
+		_ = reg.CreateAuditLog(&AuditLog{
+			ID:        fmt.Sprintf("log-service-%d", i),
+			EventType: "service_update",
+			Details:   fmt.Sprintf(`{"service":"service-%d"}`, i),
+			Timestamp: time.Now().Add(time.Duration(i+20) * time.Minute),
+		})
+	}
+	// api_request logs:
+	for i := 1; i <= 3; i++ {
+		_ = reg.CreateAuditLog(&AuditLog{
+			ID:        fmt.Sprintf("log-api-%d", i),
+			EventType: "api_request",
+			Details:   `{"path":"/api/test"}`,
+			Timestamp: time.Now().Add(time.Duration(i+30) * time.Minute),
+		})
+	}
+
+	// Total admin audit logs = 5 + 4 + 3 = 12
+	logs, total, err := reg.ListAuditLogsPaginated("", "", 1, 5)
+	if err != nil {
+		t.Fatalf("ListAuditLogsPaginated failed: %v", err)
+	}
+	if total != 12 {
+		t.Errorf("Expected total 12, got %d", total)
+	}
+	if len(logs) != 5 {
+		t.Errorf("Expected 5 logs on page 1, got %d", len(logs))
+	}
+
+	// Filter by event_type = "route_create" (should return 4)
+	routeLogs, totalRoutes, err := reg.ListAuditLogsPaginated("route_create", "", 1, 10)
+	if err != nil {
+		t.Fatalf("ListAuditLogsPaginated failed on filter: %v", err)
+	}
+	if totalRoutes != 4 {
+		t.Errorf("Expected total 4 for route_create, got %d", totalRoutes)
+	}
+	if len(routeLogs) != 4 {
+		t.Errorf("Expected 4 logs for route_create, got %d", len(routeLogs))
+	}
+
+	// Filter by search = "service-2" (should return 1)
+	searchLogs, totalSearch, err := reg.ListAuditLogsPaginated("", "service-2", 1, 10)
+	if err != nil {
+		t.Fatalf("ListAuditLogsPaginated failed on search: %v", err)
+	}
+	if totalSearch != 1 {
+		t.Errorf("Expected total 1 for search, got %d", totalSearch)
+	}
+	if len(searchLogs) != 1 {
+		t.Errorf("Expected 1 log for search, got %d", len(searchLogs))
+	}
+}
+
+

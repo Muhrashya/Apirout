@@ -4,13 +4,13 @@
 
 **Blocked by:** 23: Server-Side Paginated API Logs & Log Explorer Telemetry
 
-**Status:** ready-for-agent
+**Status:** completed
 
-- [ ] `GET /audit-logs` accepts `page`, `limit`, `event_type`, and `search` query parameters and returns `{ "data": [...], "pagination": { "total", "page", "limit", "total_pages" } }`.
-- [ ] Backend SQL queries dynamically execute `SELECT COUNT(*)` and `LIMIT ? OFFSET ?` using parameterized bind variables against `audit_logs` excluding `api_request` events.
-- [ ] `web/src/pages/settings/ActivityLogs.tsx` utilizes the reusable `Pagination` component with page size selection (`[10, 25, 50, 100]`), item range text, and page buttons.
-- [ ] `ActivityLogs.tsx` synchronizes `page`, `limit`, `event_type`, and `search` with URL query parameters via `useSearchParams`.
-- [ ] Search input has a 300ms debounce before dispatching requests to the backend.
-- [ ] Changing page size or filters resets page to 1.
-- [ ] SQL registry tests and HTTP handler tests verify pagination and filtering behavior.
-- [ ] Live browser verification on `http://localhost:8002/settings/activity-logs` confirms responsive navigation, dropdown changes, and URL synchronization.
+- [x] `GET /audit-logs` accepts `page`, `limit`, `event_type`, and `search` query parameters and returns `{ "data": [...], "pagination": { "total", "page", "limit", "total_pages" } }`.
+- [x] Backend SQL queries dynamically execute `SELECT COUNT(*)` and `LIMIT ? OFFSET ?` using parameterized bind variables against `audit_logs` excluding `api_request` events.
+- [x] `web/src/pages/settings/ActivityLogs.tsx` utilizes the reusable `Pagination` component with page size selection (`[10, 25, 50, 100]`), item range text, and page buttons.
+- [x] `ActivityLogs.tsx` synchronizes `page`, `limit`, `event_type`, and `search` with URL query parameters via `useSearchParams`.
+- [x] Search input has a 300ms debounce before dispatching requests to the backend.
+- [x] Changing page size or filters resets page to 1.
+- [x] SQL registry tests and HTTP handler tests verify pagination and filtering behavior.
+- [x] Live browser verification on `http://localhost:8002/settings/activity-logs` confirms responsive navigation, dropdown changes, and URL synchronization.
