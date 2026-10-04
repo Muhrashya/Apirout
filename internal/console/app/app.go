@@ -18,6 +18,7 @@ import (
 	"github.com/apirout/apirout/internal/console/postman"
 	"github.com/apirout/apirout/internal/console/publisher"
 	"github.com/apirout/apirout/internal/console/registry"
+	"github.com/apirout/apirout/internal/console/server"
 )
 
 const shutdownGracePeriod = 15 * time.Second
@@ -112,6 +113,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	adminHandler := wrapMiddleware(adminRouter)
 	guiHandler := wrapMiddleware(guiRouter)
 
+	stopHealthChecker := server.StartBackgroundHealthChecker(reg, pub, logger)
+
 	return &App{
 		cfg:          cfg,
 		logger:       logger,
@@ -121,6 +124,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		guiHandler:   guiHandler,
 		closers: []func(){
 			loginLimiter.Stop,
+			stopHealthChecker,
 		},
 	}, nil
 }

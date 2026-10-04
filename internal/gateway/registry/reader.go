@@ -53,10 +53,26 @@ func (r *Reader) Close() error {
 	return r.db.Close()
 }
 
-// GetEndpointByPath retrieves active endpoint metadata by URL path
+// GetEndpointByPath retrieves active endpoint metadata by URL path (exact or longest prefix)
 func (r *Reader) GetEndpointByPath(path string) (*models.Endpoint, error) {
 	var endpoint models.Endpoint
+	// 1. Try exact match first
 	err := r.db.Get(&endpoint, "SELECT * FROM endpoints WHERE path = $1", path)
+	if err == nil {
+		return &endpoint, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// 2. Fall back to longest prefix match (e.g. /api/v1/users/123 matches /api/v1/users)
+	prefixQuery := `
+		SELECT * FROM endpoints 
+		WHERE ($1 LIKE path || '/%' OR $1 LIKE path || '?%')
+		ORDER BY LENGTH(path) DESC, regex_priority DESC 
+		LIMIT 1
+	`
+	err = r.db.Get(&endpoint, prefixQuery, path)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -232,6 +248,16 @@ func (r *Reader) CreateAuditLog(log *models.AuditLog) error {
 		log.Success, log.DurationMs, log.ErrorMessage, log.Timestamp,
 	)
 	return err
+}
+
+// GetConsumerGroupByID retrieves consumer group policy metadata
+func (r *Reader) GetConsumerGroupByID(id string) (*models.ConsumerGroup, error) {
+	var g models.ConsumerGroup
+	err := r.db.Get(&g, "SELECT * FROM consumer_groups WHERE id = $1", id)
+	if err != nil {
+		return nil, err
+	}
+	return &g, nil
 }
 
 // GetAuthPluginsForRoute returns enabled auth plugins attached to a specific route

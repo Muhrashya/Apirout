@@ -704,3 +704,32 @@ func quoteIdentifier(dbType, ident string) string {
 	}
 	return `"` + ident + `"`
 }
+
+// ExecuteTableCRUD dispatches a request directly to the table CRUD handlers for a given connection
+func (h *InstantCRUDHandler) ExecuteTableCRUD(w http.ResponseWriter, r *http.Request, connID, tableName, id string) {
+	vars := map[string]string{
+		"connId": connID,
+		"table":  tableName,
+	}
+	if id != "" {
+		vars["id"] = id
+	}
+	r = mux.SetURLVars(r, vars)
+
+	switch r.Method {
+	case http.MethodGet:
+		if id != "" {
+			h.GetRow(w, r)
+		} else {
+			h.QueryTable(w, r)
+		}
+	case http.MethodPost:
+		h.InsertRow(w, r)
+	case http.MethodPut, http.MethodPatch:
+		h.UpdateRow(w, r)
+	case http.MethodDelete:
+		h.DeleteRow(w, r)
+	default:
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed for instant CRUD")
+	}
+}

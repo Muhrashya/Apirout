@@ -88,41 +88,115 @@ func (r *Registry) CreateMetric(metric *Metric) error {
 	return err
 }
 
-// GetMetricsSummary returns aggregated metrics for dashboard
+// GetMetricsSummary returns aggregated metrics for dashboard from authoritative audit_logs
 func (r *Registry) GetMetricsSummary(since time.Time) (map[string]interface{}, error) {
 	summary := make(map[string]interface{})
 
-	// Total requests
-	var totalRequests int
-	r.db.Get(&totalRequests, r.db.Rebind("SELECT COUNT(*) FROM metrics WHERE timestamp > ?"), since)
-	summary["total_requests"] = totalRequests
+	type requestRow struct {
+		DurationMs *int   `db:"duration_ms"`
+		Success    bool   `db:"success"`
+		Details    string `db:"details"`
+	}
 
-	// Success/Error counts
-	var successCount, errorCount int
-	r.db.Get(&successCount, r.db.Rebind("SELECT COUNT(*) FROM metrics WHERE timestamp > ? AND status_code < 400"), since)
-	r.db.Get(&errorCount, r.db.Rebind("SELECT COUNT(*) FROM metrics WHERE timestamp > ? AND status_code >= 400"), since)
+	query := r.db.Rebind(`
+		SELECT duration_ms, success, details 
+		FROM audit_logs 
+		WHERE event_type = 'api_request' AND timestamp > ?`)
+
+	rows, err := r.db.Queryx(query, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	totalRequests := 0
+	successCount := 0
+	errorCount := 0
+	status2xx := 0
+	status3xx := 0
+	status4xx := 0
+	status5xx := 0
+	var durations []int
+	var totalDuration int64 = 0
+
+	for rows.Next() {
+		var row requestRow
+		if err := rows.StructScan(&row); err != nil {
+			continue
+		}
+		totalRequests++
+
+		if row.Success {
+			successCount++
+		} else {
+			errorCount++
+		}
+
+		if row.DurationMs != nil && *row.DurationMs >= 0 {
+			dur := *row.DurationMs
+			durations = append(durations, dur)
+			totalDuration += int64(dur)
+		}
+
+		// Extract status code from details
+		statusCode := 200
+		if row.Details != "" && row.Details != "{}" {
+			var d struct {
+				StatusCode int `json:"status_code"`
+				Status     int `json:"status"`
+			}
+			if err := json.Unmarshal([]byte(row.Details), &d); err == nil {
+				if d.StatusCode != 0 {
+					statusCode = d.StatusCode
+				} else if d.Status != 0 {
+					statusCode = d.Status
+				}
+			}
+		}
+
+		if statusCode >= 200 && statusCode < 300 {
+			status2xx++
+		} else if statusCode >= 300 && statusCode < 400 {
+			status3xx++
+		} else if statusCode >= 400 && statusCode < 500 {
+			status4xx++
+		} else if statusCode >= 500 {
+			status5xx++
+		}
+	}
+
+	summary["total_requests"] = totalRequests
 	summary["success_count"] = successCount
 	summary["error_count"] = errorCount
+	summary["status_2xx"] = status2xx
+	summary["status_3xx"] = status3xx
+	summary["status_4xx"] = status4xx
+	summary["status_5xx"] = status5xx
 
-	// Error rate
 	if totalRequests > 0 {
 		summary["error_rate"] = float64(errorCount) / float64(totalRequests) * 100
 	} else {
 		summary["error_rate"] = 0.0
 	}
 
-	// Latency percentiles (approximate)
-	var p50, p95 int
-	r.db.Get(&p50, r.db.Rebind(`
-		SELECT duration_ms FROM metrics WHERE timestamp > ?
-		ORDER BY duration_ms LIMIT 1 OFFSET (SELECT COUNT(*)/2 FROM metrics WHERE timestamp > ?)`),
-		since, since)
-	r.db.Get(&p95, r.db.Rebind(`
-		SELECT duration_ms FROM metrics WHERE timestamp > ?
-		ORDER BY duration_ms LIMIT 1 OFFSET (SELECT COUNT(*)*95/100 FROM metrics WHERE timestamp > ?)`),
-		since, since)
-	summary["latency_p50_ms"] = p50
-	summary["latency_p95_ms"] = p95
+	avgDuration := 0
+	if len(durations) > 0 {
+		avgDuration = int(totalDuration / int64(len(durations)))
+		sort.Ints(durations)
+		p50Idx := int(float64(len(durations)-1) * 0.50)
+		p90Idx := int(float64(len(durations)-1) * 0.90)
+		p99Idx := int(float64(len(durations)-1) * 0.99)
+		summary["latency_p50_ms"] = durations[p50Idx]
+		summary["latency_p90_ms"] = durations[p90Idx]
+		summary["latency_p95_ms"] = durations[p90Idx] // backward compat
+		summary["latency_p99_ms"] = durations[p99Idx]
+	} else {
+		summary["latency_p50_ms"] = 0
+		summary["latency_p90_ms"] = 0
+		summary["latency_p95_ms"] = 0
+		summary["latency_p99_ms"] = 0
+	}
+	summary["avg_duration_ms"] = avgDuration
 
 	return summary, nil
 }
@@ -136,14 +210,14 @@ type TopEndpoint struct {
 	AvgDurationMs float64 `db:"avg_duration_ms" json:"avg_duration_ms"`
 }
 
-// GetTopEndpoints returns the most used endpoints with method and path
+// GetTopEndpoints returns the most used endpoints with method and path from audit_logs
 func (r *Registry) GetTopEndpoints(since time.Time, limit int) ([]TopEndpoint, error) {
 	rows, err := r.db.Queryx(r.db.Rebind(`
-		SELECT m.endpoint_id, e.method, e.path, COUNT(*) as request_count, AVG(m.duration_ms) as avg_duration_ms
-		FROM metrics m
-		LEFT JOIN endpoints e ON e.id = m.endpoint_id
-		WHERE m.timestamp > ? AND m.endpoint_id IS NOT NULL
-		GROUP BY m.endpoint_id, e.method, e.path
+		SELECT a.endpoint_id, e.method, e.path, COUNT(*) as request_count, COALESCE(AVG(a.duration_ms), 0) as avg_duration_ms
+		FROM audit_logs a
+		LEFT JOIN endpoints e ON e.id = a.endpoint_id
+		WHERE a.event_type = 'api_request' AND a.timestamp > ? AND a.endpoint_id IS NOT NULL AND a.endpoint_id != ''
+		GROUP BY a.endpoint_id, e.method, e.path
 		ORDER BY request_count DESC
 		LIMIT ?`), since, limit)
 	if err != nil {
@@ -156,6 +230,14 @@ func (r *Registry) GetTopEndpoints(since time.Time, limit int) ([]TopEndpoint, e
 		var te TopEndpoint
 		if err := rows.StructScan(&te); err != nil {
 			return nil, err
+		}
+		if te.Path == nil || *te.Path == "" {
+			fallbackPath := te.EndpointID
+			te.Path = &fallbackPath
+		}
+		if te.Method == nil || *te.Method == "" {
+			fallbackMethod := "API"
+			te.Method = &fallbackMethod
 		}
 		results = append(results, te)
 	}

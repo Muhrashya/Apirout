@@ -44,16 +44,6 @@ const AVAILABLE_PLUGINS = [
         }
     },
     {
-        name: 'oauth2',
-        label: 'OAuth 2.0 (oauth2)',
-        description: 'Validate OAuth2 bearer access tokens with optional scope enforcement.',
-        defaultConfig: {
-            scopes: ['read', 'write'],
-            mandatory_scope: false,
-            token_expiration: 7200
-        }
-    },
-    {
         name: 'hmac-auth',
         label: 'HMAC Signature (hmac-auth)',
         description: 'Authenticate requests using cryptographic HMAC signature headers with clock skew protection.',

@@ -133,10 +133,19 @@ func (r *Registry) GetEndpointByID(id string) (*Endpoint, error) {
 	return &endpoint, err
 }
 
-// GetEndpointByPath returns an endpoint by path
+// GetEndpointByPath returns an endpoint by path (exact or prefix)
 func (r *Registry) GetEndpointByPath(path string) (*Endpoint, error) {
 	var endpoint Endpoint
 	err := r.db.Get(&endpoint, r.db.Rebind("SELECT "+endpointColumns+" FROM endpoints WHERE path = ?"), path)
+	if err == nil {
+		return &endpoint, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	prefixQuery := "SELECT " + endpointColumns + " FROM endpoints WHERE (? LIKE path || '/%' OR ? LIKE path || '?%') ORDER BY LENGTH(path) DESC, regex_priority DESC LIMIT 1"
+	err = r.db.Get(&endpoint, r.db.Rebind(prefixQuery), path, path)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

@@ -175,7 +175,7 @@ export default function ServiceFormPage() {
             }
 
             if (serviceId) {
-                if (outboundAuth.enabled && outboundAuth.auth_type) {
+                if (targetMode !== 'database' && outboundAuth.enabled && outboundAuth.auth_type) {
                     await gatewayApi.setOutboundAuth(serviceId, {
                         auth_type: outboundAuth.auth_type,
                         config: outboundAuth.config as any,
@@ -509,29 +509,44 @@ export default function ServiceFormPage() {
                 </div>
 
                 {/* Card 4: Upstream Authentication (Outbound Credential Injection) */}
-                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '16px' }}>
-                        <div>
-                            <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
-                                Upstream Authentication (Outbound Injection)
-                            </h2>
-                            <p style={{ fontSize: '12px', color: '#64748b', margin: '2px 0 0 0' }}>
-                                Automatically inject credentials into requests proxied to your backend services. Secrets are AES-256 encrypted at rest.
-                            </p>
+                {targetMode === 'database' ? (
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px 24px', marginBottom: '24px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ fontSize: '20px' }}>🔐</div>
+                            <div>
+                                <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a', margin: 0 }}>
+                                    Database Authentication Managed by Connection Profile
+                                </h3>
+                                <p style={{ fontSize: '12.5px', color: '#64748b', margin: '4px 0 0 0', lineHeight: 1.5 }}>
+                                    Credentials, SSL/TLS certificates, and connection pooling for this service are managed automatically by the selected <strong>Database Connection Profile</strong>. Outbound HTTP header injection applies to HTTP / Upstream targets only.
+                                </p>
+                            </div>
                         </div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: 600 }}>
-                            <input
-                                type="checkbox"
-                                checked={outboundAuth.enabled}
-                                onChange={e => setOutboundAuth(prev => ({ ...prev, enabled: e.target.checked }))}
-                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                            />
-                            Enable Outbound Auth
-                        </label>
                     </div>
+                ) : (
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '16px' }}>
+                            <div>
+                                <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                                    Upstream Authentication (Outbound Injection)
+                                </h2>
+                                <p style={{ fontSize: '12px', color: '#64748b', margin: '2px 0 0 0' }}>
+                                    Automatically inject credentials into requests proxied to your backend services. Secrets are AES-256 encrypted at rest.
+                                </p>
+                            </div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: 600 }}>
+                                <input
+                                    type="checkbox"
+                                    checked={outboundAuth.enabled}
+                                    onChange={e => setOutboundAuth(prev => ({ ...prev, enabled: e.target.checked }))}
+                                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                />
+                                Enable Outbound Auth
+                            </label>
+                        </div>
 
-                    {outboundAuth.enabled && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {outboundAuth.enabled && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div>
                                 <label className="label">Authentication Scheme *</label>
                                 <select
@@ -819,6 +834,7 @@ export default function ServiceFormPage() {
                         </div>
                     )}
                 </div>
+                )}
 
                 {/* Card 5: Inbound Auth Plugins (if editing existing service) */}
                 {isEdit && id && (

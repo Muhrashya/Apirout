@@ -24,14 +24,14 @@ export default function AnalyticsPage() {
         }
     };
 
-    const avgDuration = stats?.avg_duration_ms || 2;
+    const avgDuration = stats?.avg_duration_ms ?? 0;
     const topEndpoints = stats?.top_endpoints || [];
     const topUsers = stats?.top_users || [];
 
-    // Synthetic percentiles derived from live average latency
-    const p50 = Math.max(1, Math.round(avgDuration * 0.8));
-    const p90 = Math.max(2, Math.round(avgDuration * 1.5));
-    const p99 = Math.max(3, Math.round(avgDuration * 2.8));
+    // Real statistical percentiles calculated directly from recorded request durations
+    const p50 = stats?.latency_p50_ms ?? 0;
+    const p90 = stats?.latency_p90_ms ?? 0;
+    const p99 = stats?.latency_p99_ms ?? 0;
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

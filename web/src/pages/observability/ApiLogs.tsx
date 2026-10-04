@@ -388,9 +388,9 @@ export default function ApiLogsPage() {
                         color: '#475569'
                     }}>
                         <div style={{ display: 'flex', gap: '16px' }}>
-                            <span><strong>Response:</strong> {selectedReq.duration_ms || 1}ms</span>
-                            <span><strong>Gateway:</strong> {selectedReq.gateway_latency_ms || Math.max(1, Math.floor((selectedReq.duration_ms || 1) / 2))}ms</span>
-                            <span><strong>Upstream:</strong> {selectedReq.upstream_latency_ms || Math.floor((selectedReq.duration_ms || 1) / 2)}ms</span>
+                            <span><strong>Response:</strong> {selectedReq.duration_ms ?? 0}ms</span>
+                            <span><strong>Gateway:</strong> {selectedReq.gateway_latency_ms ?? (selectedReq.duration_ms ?? 0)}ms</span>
+                            <span><strong>Upstream:</strong> {selectedReq.upstream_latency_ms ?? 0}ms</span>
                         </div>
                         <div>
                             <span><strong>Time:</strong> {new Date(selectedReq.timestamp).toLocaleTimeString()}</span>
@@ -443,7 +443,7 @@ export default function ApiLogsPage() {
                                 <InspectorRow label="Service Name" value={selectedReq.service_name || 'Gateway Core Service'} />
                                 <InspectorRow label="Upstream Destination" value={selectedReq.upstream_uri || 'http://localhost:8000'} mono />
                                 <InspectorRow label="Protocol" value="HTTP/1.1" />
-                                <InspectorRow label="Upstream Latency" value={`${selectedReq.upstream_latency_ms || 1}ms`} />
+                                <InspectorRow label="Upstream Latency" value={`${selectedReq.upstream_latency_ms ?? 0}ms`} />
                                 <InspectorRow label="Health Status" value="Healthy" badge />
                             </div>
                         )}
@@ -462,7 +462,7 @@ export default function ApiLogsPage() {
                         {drawerTab === 'response' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                 <InspectorRow label="Status Code" value={String(selectedReq.status_code || 200)} badge />
-                                <InspectorRow label="Duration" value={`${selectedReq.duration_ms || 1}ms`} />
+                                <InspectorRow label="Duration" value={`${selectedReq.duration_ms ?? 0}ms`} />
                                 <InspectorRow label="Content-Type" value="application/json" mono />
                                 {selectedReq.error_message && (
                                     <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '14px', marginTop: '10px' }}>

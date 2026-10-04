@@ -66,12 +66,17 @@ export default function RouteFormPage() {
                 const routeRes = await gatewayApi.getRoute(id);
                 const r: any = (routeRes as any)?.data || routeRes;
                 if (r) {
-                    if (r.query_id) {
+                    if (r.query_id && !r.service_id) {
                         setTargetType('query');
                     } else if (r.service_id) {
-                        setTargetType('service');
+                        const s = loadedServices.find((item: any) => item.id === r.service_id);
+                        if ((s?.connection_id || s?.protocol === 'database') && !r.query_id) {
+                            setTargetType('instant_api');
+                        } else {
+                            setTargetType('service');
+                        }
                     } else {
-                        setTargetType('instant_api');
+                        setTargetType('service');
                     }
 
                     setFormData({
@@ -119,7 +124,8 @@ export default function RouteFormPage() {
         } else if (type === 'query') {
             setFormData(prev => ({ ...prev, service_id: '' }));
         } else if (type === 'instant_api') {
-            setFormData(prev => ({ ...prev, service_id: '', query_id: '' }));
+            const firstDbService = services.find(s => s.connection_id || s.protocol === 'database');
+            setFormData(prev => ({ ...prev, service_id: firstDbService ? firstDbService.id : '', query_id: '' }));
         }
     };
 
@@ -141,17 +147,33 @@ export default function RouteFormPage() {
             toast.error('Please select a Target Gateway Service');
             return;
         }
+        if (targetType === 'instant_api' && !formData.service_id) {
+            toast.error('Please select a Target Database Service for Instant API');
+            return;
+        }
         if (targetType === 'query' && !formData.query_id) {
             toast.error('Please select a Target SQL Query');
             return;
+        }
+
+        // For query target, also link to connection's service if available
+        let finalServiceId = formData.service_id || undefined;
+        if (targetType === 'query' && formData.query_id && !finalServiceId) {
+            const selectedQ = queries.find(q => q.id === formData.query_id);
+            if (selectedQ && selectedQ.connection_id) {
+                const connService = services.find(s => s.connection_id === selectedQ.connection_id);
+                if (connService) {
+                    finalServiceId = connService.id;
+                }
+            }
         }
 
         const payload: Partial<Route> = {
             name: formData.name.trim() || undefined,
             path: cleanPath,
             method: formData.method,
-            service_id: targetType === 'service' ? (formData.service_id || undefined) : undefined,
-            query_id: targetType === 'query' ? (formData.query_id || undefined) : undefined,
+            service_id: (targetType === 'service' || targetType === 'instant_api') ? (formData.service_id || undefined) : finalServiceId,
+            query_id: targetType === 'query' ? (formData.query_id || undefined) : (targetType === 'service' && formData.query_id ? formData.query_id : undefined),
             description: formData.description.trim() || undefined,
             protocols: formData.protocols,
             strip_path: targetType === 'service' ? formData.strip_path : false,
@@ -511,68 +533,121 @@ export default function RouteFormPage() {
                                     ))}
                                 </select>
                                 <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                                    Requests will be forwarded to this Service and its configured Upstream targets or Host URL.
+                                    Requests will be routed to this Service backend.
                                 </span>
                             </div>
 
-                            <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: '#1e293b' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.strip_path}
-                                        onChange={e => setFormData(prev => ({ ...prev, strip_path: e.target.checked }))}
-                                        style={{ width: '16px', height: '16px' }}
-                                    />
-                                    <strong>Strip Path Prefix</strong> (removes route path before forwarding to backend)
-                                </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: '#1e293b' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.preserve_host}
-                                        onChange={e => setFormData(prev => ({ ...prev, preserve_host: e.target.checked }))}
-                                        style={{ width: '16px', height: '16px' }}
-                                    />
-                                    <strong>Preserve Host</strong> (forward incoming Host header unchanged)
-                                </label>
-                            </div>
+                            {(() => {
+                                const selService = services.find(s => s.id === formData.service_id);
+                                if (selService && (selService.connection_id || selService.protocol === 'database')) {
+                                    return (
+                                        <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                                            <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e40af', marginBottom: '4px' }}>
+                                                Database Service Target
+                                            </div>
+                                            <p style={{ fontSize: '12.5px', color: '#1d4ed8', margin: '0 0 10px', lineHeight: 1.4 }}>
+                                                This Service connects directly to database data source <strong>{selService.name}</strong>. Incoming requests will perform Instant REST CRUD operations on the corresponding database table (e.g. <code>GET /api/v1/users</code>, <code>POST</code>, <code>DELETE</code>), or you can optionally attach a predefined SQL query below.
+                                            </p>
+                                            <div>
+                                                <label className="label" style={{ fontSize: '12px', marginBottom: '4px' }}>Optional Predefined SQL Query</label>
+                                                <select
+                                                    className="select"
+                                                    value={formData.query_id}
+                                                    onChange={e => setFormData(prev => ({ ...prev, query_id: e.target.value }))}
+                                                >
+                                                    <option value="">-- None (Automatic Instant Table CRUD) --</option>
+                                                    {queries.filter(q => !selService.connection_id || q.connection_id === selService.connection_id).map(q => (
+                                                        <option key={q.id} value={q.id}>
+                                                            {q.name}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: '#1e293b' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={formData.strip_path}
+                                                onChange={e => setFormData(prev => ({ ...prev, strip_path: e.target.checked }))}
+                                                style={{ width: '16px', height: '16px' }}
+                                            />
+                                            <strong>Strip Path Prefix</strong> (removes route path before forwarding to backend)
+                                        </label>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: '#1e293b' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={formData.preserve_host}
+                                                onChange={e => setFormData(prev => ({ ...prev, preserve_host: e.target.checked }))}
+                                                style={{ width: '16px', height: '16px' }}
+                                            />
+                                            <strong>Preserve Host</strong> (forward incoming Host header unchanged)
+                                        </label>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     )}
 
                     {/* Sub-Panel: Instant API Information */}
                     {targetType === 'instant_api' && (
                         <div style={{ padding: '20px', backgroundColor: '#f0fdf4', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '16px' }}>
                                 <div style={{ color: '#16a34a', marginTop: '2px' }}>
                                     <IconBolt width={22} height={22} />
                                 </div>
                                 <div style={{ flex: 1 }}>
                                     <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#166534', margin: '0 0 6px' }}>
-                                        Instant API Table Routing Active
+                                        Instant REST CRUD Table Routing
                                     </h4>
-                                    <p style={{ fontSize: '13px', color: '#15803d', margin: '0 0 12px', lineHeight: 1.5 }}>
-                                        Incoming HTTP requests matching table paths (e.g. <code>/api/v1/customers</code>) will be dispatched directly to the built-in Instant API database engine.
+                                    <p style={{ fontSize: '13px', color: '#15803d', margin: 0, lineHeight: 1.5 }}>
+                                        Incoming HTTP requests matching table paths (e.g. <code>/api/v1/customers</code> or <code>/api/v1/customers/123</code>) will perform instant CRUD (SELECT, INSERT, UPDATE, DELETE) directly against the selected database.
                                     </p>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        <Link
-                                            to="/instant-api"
-                                            target="_blank"
-                                            style={{
-                                                fontSize: '12.5px',
-                                                fontWeight: 600,
-                                                color: '#15803d',
-                                                textDecoration: 'none',
-                                                backgroundColor: '#dcfce7',
-                                                padding: '6px 12px',
-                                                borderRadius: '6px',
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: '6px'
-                                            }}
-                                        >
-                                            <span>Manage Instant API Schemas &rarr;</span>
-                                        </Link>
-                                    </div>
                                 </div>
+                            </div>
+
+                            <div style={{ marginBottom: '14px' }}>
+                                <label className="label" style={{ color: '#166534' }}>Target Database Service *</label>
+                                <select
+                                    className="select"
+                                    required
+                                    value={formData.service_id}
+                                    onChange={e => setFormData(prev => ({ ...prev, service_id: e.target.value }))}
+                                >
+                                    <option value="">-- Select Target Database Service --</option>
+                                    {services.filter(s => s.connection_id || s.protocol === 'database').map(s => (
+                                        <option key={s.id} value={s.id}>
+                                            {s.name} (Database)
+                                        </option>
+                                    ))}
+                                </select>
+                                <span style={{ fontSize: '11.5px', color: '#15803d', marginTop: '4px', display: 'block' }}>
+                                    Select the database connection service whose tables will be exposed by this route.
+                                </span>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <Link
+                                    to="/instant-api"
+                                    target="_blank"
+                                    style={{
+                                        fontSize: '12.5px',
+                                        fontWeight: 600,
+                                        color: '#15803d',
+                                        textDecoration: 'none',
+                                        backgroundColor: '#dcfce7',
+                                        padding: '6px 12px',
+                                        borderRadius: '6px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    <span>Manage Instant API Schemas &rarr;</span>
+                                </Link>
                             </div>
                         </div>
                     )}

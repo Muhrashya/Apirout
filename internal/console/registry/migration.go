@@ -347,6 +347,11 @@ func (r *Registry) MigrateSchema() error {
 		fmt.Printf("Warning creating consumer_groups table: %v\n", err)
 	}
 
+	// Drop legacy foreign key to admin groups on api_clients if exists
+	if r.dbType == "postgres" || r.dbType == "postgresql" {
+		_, _ = r.db.Exec(`ALTER TABLE api_clients DROP CONSTRAINT IF EXISTS api_clients_group_id_fkey;`)
+	}
+
 	// 15. Kong Architecture: Consumer Credentials table
 	consumerCredsTable := `CREATE TABLE IF NOT EXISTS consumer_credentials (
 		id VARCHAR(255) PRIMARY KEY,

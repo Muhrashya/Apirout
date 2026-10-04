@@ -3,11 +3,13 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/apirout/apirout/internal/core/httputil"
+	"github.com/apirout/apirout/internal/console/publisher"
 	"github.com/apirout/apirout/internal/console/registry"
+	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/core/models"
 	"github.com/gorilla/mux"
 )
@@ -331,7 +333,7 @@ func (h *UpstreamsHandler) HealthCheckTarget(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	status, latency, errMsg := performActiveHealthCheck(target.Host, target.Port, healthPath, timeoutSec)
+	status, latency, errMsg := PerformActiveHealthCheck(target.Host, target.Port, healthPath, timeoutSec)
 	_ = h.registry.UpdateTargetHealthStatus(target.ID, status)
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{
@@ -370,7 +372,7 @@ func (h *UpstreamsHandler) HealthCheckUpstream(w http.ResponseWriter, r *http.Re
 			continue
 		}
 
-		status, latency, errMsg := performActiveHealthCheck(target.Host, target.Port, upstream.HealthCheckPath, upstream.HealthCheckTimeout)
+		status, latency, errMsg := PerformActiveHealthCheck(target.Host, target.Port, upstream.HealthCheckPath, upstream.HealthCheckTimeout)
 		_ = h.registry.UpdateTargetHealthStatus(target.ID, status)
 
 		results = append(results, map[string]interface{}{
@@ -390,8 +392,8 @@ func (h *UpstreamsHandler) HealthCheckUpstream(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// performActiveHealthCheck actually performs an HTTP health check request
-func performActiveHealthCheck(host string, port int, path string, timeoutSec int) (status string, latencyMs int64, errMsg string) {
+// PerformActiveHealthCheck actually performs an HTTP health check request
+func PerformActiveHealthCheck(host string, port int, path string, timeoutSec int) (status string, latencyMs int64, errMsg string) {
 	if timeoutSec <= 0 {
 		timeoutSec = 5
 	}
@@ -422,3 +424,54 @@ func performActiveHealthCheck(host string, port int, path string, timeoutSec int
 
 	return "unhealthy", latency, fmt.Sprintf("HTTP status %d", resp.StatusCode)
 }
+
+// StartBackgroundHealthChecker starts a background worker that periodically polls enabled upstreams and targets
+func StartBackgroundHealthChecker(reg *registry.Registry, pub *publisher.RedisPublisher, logger *slog.Logger) func() {
+	ticker := time.NewTicker(15 * time.Second)
+	done := make(chan struct{})
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				ticker.Stop()
+				return
+			case <-ticker.C:
+				upstreams, err := reg.ListUpstreams()
+				if err != nil {
+					continue
+				}
+
+				for _, u := range upstreams {
+					if !u.Enabled || !u.HealthCheckEnabled {
+						continue
+					}
+
+					targets, err := reg.ListTargetsByUpstreamID(u.ID)
+					if err != nil {
+						continue
+					}
+
+					for _, t := range targets {
+						if !t.Enabled {
+							continue
+						}
+
+						status, _, _ := PerformActiveHealthCheck(t.Host, t.Port, u.HealthCheckPath, u.HealthCheckTimeout)
+						if status != t.HealthStatus {
+							_ = reg.UpdateTargetHealthStatus(t.ID, status)
+							if logger != nil {
+								logger.Info("Target health updated by background checker", "upstream", u.Name, "target", t.Target, "status", status)
+							}
+						}
+					}
+				}
+			}
+		}
+	}()
+
+	return func() {
+		close(done)
+	}
+}
+

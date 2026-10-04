@@ -73,8 +73,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	apiClientHandler := apiclientauth.NewHandler(apiClientAuthService)
 	authEngine := auth.NewEngine(reader, cfg.JWTSecret)
 	outboundInjector := auth.NewOutboundInjector(cfg.EncryptionKey)
-	executorHandler := executor.NewHandler(executorService, reader, apiClientAuthService, authEngine, outboundInjector)
 	instantHandler := executor.NewInstantCRUDHandler(reader, cfg.EncryptionKey, connPool, apiClientAuthService, cfg.AdminSecret, cfg.JWTSecret)
+	executorHandler := executor.NewHandler(executorService, reader, apiClientAuthService, authEngine, outboundInjector, instantHandler)
 
 	// Public Consumer Gateway Router (Port 8000)
 	r := mux.NewRouter()
