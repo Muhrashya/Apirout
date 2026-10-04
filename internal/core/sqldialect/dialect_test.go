@@ -177,3 +177,75 @@ func TestFilterOperators(t *testing.T) {
 		t.Errorf("expected single arg '%%test%%', got: %v", args)
 	}
 }
+
+func TestToAnySlice(t *testing.T) {
+	// 1. []string
+	strSlice, ok := ToAnySlice([]string{"a", "b", "c"})
+	if !ok || len(strSlice) != 3 || strSlice[0] != "a" {
+		t.Errorf("expected []string conversion to succeed, got %v, ok=%v", strSlice, ok)
+	}
+
+	// 2. []int
+	intSlice, ok := ToAnySlice([]int{1, 2, 3})
+	if !ok || len(intSlice) != 3 || intSlice[1] != 2 {
+		t.Errorf("expected []int conversion to succeed, got %v, ok=%v", intSlice, ok)
+	}
+
+	// 3. []int64
+	i64Slice, ok := ToAnySlice([]int64{10, 20})
+	if !ok || len(i64Slice) != 2 || i64Slice[0] != int64(10) {
+		t.Errorf("expected []int64 conversion to succeed, got %v, ok=%v", i64Slice, ok)
+	}
+
+	// 4. []float64
+	f64Slice, ok := ToAnySlice([]float64{1.5, 2.5})
+	if !ok || len(f64Slice) != 2 || f64Slice[1] != 2.5 {
+		t.Errorf("expected []float64 conversion to succeed, got %v, ok=%v", f64Slice, ok)
+	}
+
+	// 5. []any
+	anySlice, ok := ToAnySlice([]any{"x", 42})
+	if !ok || len(anySlice) != 2 {
+		t.Errorf("expected []any conversion to succeed, got %v, ok=%v", anySlice, ok)
+	}
+
+	// 6. Non-slice
+	_, ok = ToAnySlice("not a slice")
+	if ok {
+		t.Errorf("expected non-slice conversion to fail")
+	}
+}
+
+func TestMSSQLPaginationWithOrderBy(t *testing.T) {
+	gen, err := GetGenerator("sqlserver")
+	if err != nil {
+		t.Fatalf("unexpected error getting generator: %v", err)
+	}
+
+	// Case 1: Query with trailing ORDER BY -> ORDER BY must be lifted outside derived table
+	rawWithOrder := "SELECT id, name, created_at FROM users WHERE status = 'active' ORDER BY created_at DESC"
+	pagedSQL, err := gen.WrapPagination(rawWithOrder, 10, 20)
+	if err != nil {
+		t.Fatalf("WrapPagination failed: %v", err)
+	}
+
+	// Inner subquery must not contain ORDER BY
+	expectedSub := "SELECT * FROM (SELECT id, name, created_at FROM users WHERE status = 'active') AS _paginated_sub"
+	if !strings.HasPrefix(pagedSQL, expectedSub) {
+		t.Errorf("expected derived subquery without inner ORDER BY, got:\n%s", pagedSQL)
+	}
+	// Outer query must contain the original ORDER BY
+	if !strings.Contains(pagedSQL, "ORDER BY created_at DESC OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY") {
+		t.Errorf("expected outer ORDER BY and OFFSET/FETCH, got:\n%s", pagedSQL)
+	}
+
+	// Case 2: Query without ORDER BY -> outer gets ORDER BY (SELECT NULL)
+	rawWithoutOrder := "SELECT id, name FROM users WHERE status = 'active'"
+	pagedSQL2, err := gen.WrapPagination(rawWithoutOrder, 15, 0)
+	if err != nil {
+		t.Fatalf("WrapPagination failed: %v", err)
+	}
+	if !strings.Contains(pagedSQL2, "ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 15 ROWS ONLY") {
+		t.Errorf("expected ORDER BY (SELECT NULL), got:\n%s", pagedSQL2)
+	}
+}

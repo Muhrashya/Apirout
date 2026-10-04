@@ -274,7 +274,7 @@ func (g *PostgresGenerator) buildFilters(filters []FilterCondition, startIdx int
 			args = append(args, f.Value)
 			idx++
 		case OpIn:
-			if slice, ok := toAnySlice(f.Value); ok && len(slice) > 0 {
+			if slice, ok := ToAnySlice(f.Value); ok && len(slice) > 0 {
 				inPlaceholders := make([]string, len(slice))
 				for i, val := range slice {
 					inPlaceholders[i] = g.Placeholder(idx)
@@ -295,25 +295,4 @@ func (g *PostgresGenerator) buildFilters(filters []FilterCondition, startIdx int
 	}
 
 	return parts, args, idx
-}
-
-func toAnySlice(val any) ([]any, bool) {
-	switch v := val.(type) {
-	case []any:
-		return v, true
-	case []string:
-		out := make([]any, len(v))
-		for i, item := range v {
-			out[i] = item
-		}
-		return out, true
-	case []int:
-		out := make([]any, len(v))
-		for i, item := range v {
-			out[i] = item
-		}
-		return out, true
-	default:
-		return nil, false
-	}
 }

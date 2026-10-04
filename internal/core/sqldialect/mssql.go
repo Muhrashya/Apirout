@@ -239,13 +239,20 @@ func (g *MSSQLGenerator) WrapPagination(rawSQL string, limit, offset int) (strin
 		return trimmed, nil
 	}
 
+	baseQuery, orderClause := splitOuterOrderBy(trimmed)
+
 	var sb strings.Builder
 	sb.WriteString("SELECT * FROM (")
-	sb.WriteString(trimmed)
+	sb.WriteString(baseQuery)
 	sb.WriteString(") AS _paginated_sub")
 
-	// Check if already has ORDER BY in the subquery or outer
-	sb.WriteString(" ORDER BY (SELECT NULL)")
+	if orderClause != "" {
+		sb.WriteString(" ORDER BY ")
+		sb.WriteString(orderClause)
+	} else {
+		sb.WriteString(" ORDER BY (SELECT NULL)")
+	}
+
 	if offset < 0 {
 		offset = 0
 	}
@@ -254,6 +261,36 @@ func (g *MSSQLGenerator) WrapPagination(rawSQL string, limit, offset int) (strin
 		sb.WriteString(fmt.Sprintf(" FETCH NEXT %d ROWS ONLY", limit))
 	}
 	return sb.String(), nil
+}
+
+// splitOuterOrderBy separates an outer trailing ORDER BY clause from the query body to prevent T-SQL Msg 1033
+func splitOuterOrderBy(sql string) (string, string) {
+	trimmed := strings.TrimRight(strings.TrimSpace(sql), ";")
+
+	depth := 0
+	for i := len(trimmed) - 1; i >= 0; i-- {
+		switch trimmed[i] {
+		case ')':
+			depth++
+		case '(':
+			depth--
+		}
+		if depth == 0 && i+8 <= len(trimmed) {
+			if strings.EqualFold(trimmed[i:i+8], "ORDER BY") {
+				beforeValid := i == 0 || trimmed[i-1] == ' ' || trimmed[i-1] == '\t' || trimmed[i-1] == '\n'
+				afterValid := i+8 == len(trimmed) || trimmed[i+8] == ' ' || trimmed[i+8] == '\t' || trimmed[i+8] == '\n'
+				if beforeValid && afterValid {
+					prefix := strings.TrimSpace(trimmed[:i])
+					orderClause := strings.TrimSpace(trimmed[i+8:])
+					prefixUpper := strings.ToUpper(prefix)
+					if !strings.Contains(prefixUpper, " TOP ") && !strings.Contains(prefixUpper, " OFFSET ") {
+						return prefix, orderClause
+					}
+				}
+			}
+		}
+	}
+	return trimmed, ""
 }
 
 func (g *MSSQLGenerator) buildFilters(filters []FilterCondition, startIdx int) ([]string, []any, int) {
@@ -301,7 +338,7 @@ func (g *MSSQLGenerator) buildFilters(filters []FilterCondition, startIdx int) (
 			args = append(args, f.Value)
 			idx++
 		case OpIn:
-			if slice, ok := toAnySlice(f.Value); ok && len(slice) > 0 {
+			if slice, ok := ToAnySlice(f.Value); ok && len(slice) > 0 {
 				inPlaceholders := make([]string, len(slice))
 				for i, val := range slice {
 					inPlaceholders[i] = g.Placeholder(idx)

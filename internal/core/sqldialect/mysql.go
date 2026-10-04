@@ -233,7 +233,7 @@ func (g *MySQLGenerator) buildFilters(filters []FilterCondition) ([]string, []an
 			parts = append(parts, fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", col))
 			args = append(args, f.Value)
 		case OpIn:
-			if slice, ok := toAnySlice(f.Value); ok && len(slice) > 0 {
+			if slice, ok := ToAnySlice(f.Value); ok && len(slice) > 0 {
 				inPlaceholders := make([]string, len(slice))
 				for i, val := range slice {
 					inPlaceholders[i] = "?"

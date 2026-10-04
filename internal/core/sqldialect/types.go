@@ -69,3 +69,37 @@ type DeleteSpec struct {
 	Filters   []FilterCondition
 	Returning []string
 }
+
+// ToAnySlice coerces supported slice types ([]any, []string, []int, []int64, []float64) to []any
+func ToAnySlice(val any) ([]any, bool) {
+	switch v := val.(type) {
+	case []any:
+		return v, true
+	case []string:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	case []int:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	case []int64:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	case []float64:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
