@@ -4,7 +4,7 @@
 
 ### Issue tracker
 
-GitHub Issues at `Muhrashya/Apirout` using `gh` CLI. See `docs/agents/issue-tracker.md`.
+Local markdown files in `.scratch/`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
