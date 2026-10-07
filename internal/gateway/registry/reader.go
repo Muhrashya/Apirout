@@ -121,8 +121,12 @@ func (r *Reader) GetAPIClientByUsername(username string) (*models.APIClient, err
 
 // IsAPIClientAllowedForEndpoint checks client allowlist permissions
 func (r *Reader) IsAPIClientAllowedForEndpoint(apiClientID, endpointID string) (bool, error) {
+	if apiClientID == "" {
+		return false, nil
+	}
+
 	var count int
-	// If no restrictions defined in api_client_endpoints, client has access to group endpoints
+	// 1. If explicit restriction exists in api_client_endpoints, check if allowed
 	query := `
 		SELECT COUNT(*) FROM api_client_endpoints ace
 		WHERE ace.api_client_id = $1 AND ace.endpoint_id = $2
@@ -135,28 +139,36 @@ func (r *Reader) IsAPIClientAllowedForEndpoint(apiClientID, endpointID string) (
 		return true, nil
 	}
 
-	// Check if client has no specific endpoint restrictions, meaning group-level access
+	// 2. Check if client has specific endpoint restrictions defined
 	var totalRestrictions int
 	err = r.db.Get(&totalRestrictions, "SELECT COUNT(*) FROM api_client_endpoints WHERE api_client_id = $1", apiClientID)
 	if err != nil {
 		return false, err
 	}
-
-	// If no specific restrictions, check if in same group
-	if totalRestrictions == 0 {
-		var sameGroup bool
-		groupQuery := `
-			SELECT EXISTS(
-				SELECT 1 FROM api_clients c
-				JOIN endpoints e ON c.group_id = e.group_id
-				WHERE c.id = $1 AND e.id = $2
-			)
-		`
-		err = r.db.Get(&sameGroup, groupQuery, apiClientID, endpointID)
-		return sameGroup, err
+	// If client has specific restrictions and count was 0, they are not allowed on this endpoint
+	if totalRestrictions > 0 {
+		return false, nil
 	}
 
-	return false, nil
+	// 3. Client has no specific endpoint restrictions.
+	// If endpoint is not restricted to a group (e.group_id IS NULL), allow access.
+	// If endpoint is restricted to a group (e.group_id IS NOT NULL), client must belong to that group.
+	var allowed bool
+	groupQuery := `
+		SELECT CASE
+			WHEN e.group_id IS NULL THEN TRUE
+			WHEN c.group_id IS NOT NULL AND c.group_id = e.group_id THEN TRUE
+			ELSE FALSE
+		END
+		FROM endpoints e
+		LEFT JOIN api_clients c ON c.id = $1
+		WHERE e.id = $2
+	`
+	err = r.db.Get(&allowed, groupQuery, apiClientID, endpointID)
+	if err != nil {
+		return false, err
+	}
+	return allowed, nil
 }
 
 // GetServiceByID retrieves a logical Gateway service by ID

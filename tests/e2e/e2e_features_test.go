@@ -1135,3 +1135,102 @@ func TestE2E_AuditLoggingTelemetry(t *testing.T) {
 		t.Errorf("expected audit logs to contain records")
 	}
 }
+
+func TestE2E_UnrestrictedConsumerDefaultAccessToProtectedRoutes(t *testing.T) {
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	username := "default-consumer-" + suffix
+	svcName := "default-auth-svc-" + suffix
+	routePath := "/api/default-auth-" + suffix
+
+	// 1. Create Consumer with NO group and NO route restrictions
+	consumerPayload := map[string]any{
+		"username": username,
+		"status":   "active",
+	}
+	code, consRes := adminRequest(t, "POST", "/api/v1/consumers", consumerPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create consumer: %d %v", code, consRes)
+	}
+	consumerID := extractID(consRes)
+	t.Cleanup(func() {
+		if consumerID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/consumers/"+consumerID, nil)
+		}
+	})
+
+	// 2. Create API Key
+	keyPayload := map[string]any{
+		"name":     "Default Auth Key",
+		"key_type": "api-key",
+	}
+	code, credRes := adminRequest(t, "POST", fmt.Sprintf("/api/v1/consumers/%s/credentials", consumerID), keyPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create credential: %d %v", code, credRes)
+	}
+	apiKey := fmt.Sprintf("%v", credRes["key_secret"])
+	if apiKey == "" || apiKey == "<nil>" {
+		if d, ok := credRes["data"].(map[string]any); ok {
+			apiKey = fmt.Sprintf("%v", d["key_secret"])
+		}
+	}
+
+	// 3. Create Service pointing to status health
+	svcPayload := map[string]any{
+		"name":     svcName,
+		"protocol": "http",
+		"host":     "127.0.0.1",
+		"port":     8100,
+		"path":     "/health",
+		"enabled":  true,
+	}
+	code, svcRes := adminRequest(t, "POST", "/api/v1/services", svcPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create service: %d %v", code, svcRes)
+	}
+	svcID := extractID(svcRes)
+	t.Cleanup(func() {
+		if svcID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/services/"+svcID, nil)
+		}
+	})
+
+	// 4. Create Protected Route (is_public: false, NO group assigned)
+	epPayload := map[string]any{
+		"service_id": svcID,
+		"method":     "GET",
+		"path":       routePath,
+		"strip_path": true,
+		"is_public":  false, // Protected!
+		"enabled":    true,
+	}
+	code, epRes := adminRequest(t, "POST", "/api/v1/endpoints", epPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create endpoint: %d %v", code, epRes)
+	}
+	epID := extractID(epRes)
+	t.Cleanup(func() {
+		if epID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/endpoints/"+epID, nil)
+		}
+	})
+
+	time.Sleep(200 * time.Millisecond)
+
+	// 5. Without API key -> 401 Unauthorized
+	code, _, _ = gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
+	if code != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized without API key, got %d", code)
+	}
+
+	// 6. With API key -> MUST be 200 OK (NOT 403 Forbidden!)
+	// This proves that unrestricted consumers can access protected routes without manual route linking
+	headers := map[string]string{"X-API-Key": apiKey}
+	code, respHeaders, body := gatewayRequestWithHeaders(t, "GET", routePath, headers, nil)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 OK with valid API key for unrestricted consumer, got %d: %s", code, string(body))
+	}
+	if respHeaders.Get("X-Request-ID") == "" {
+		t.Errorf("expected non-empty X-Request-ID on authenticated response")
+	}
+}
+

@@ -935,13 +935,12 @@ export default function RouteFormPage() {
                                 Select the initial authentication plugin to protect this route. Multiple plugins can be chained (OR logic) after creation.
                             </p>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
                                 {[
                                     { id: 'key-auth', name: 'API Key (key-auth)', desc: 'Header X-API-Key or ?api_key query' },
                                     { id: 'jwt-auth', name: 'JWT Bearer (jwt-auth)', desc: 'Cryptographically signed JWT' },
                                     { id: 'basic-auth', name: 'Basic Auth (basic-auth)', desc: 'Standard HTTP Basic user:pass' },
                                     { id: 'hmac-auth', name: 'HMAC Signature (hmac-auth)', desc: 'HMAC-SHA256 signature headers' },
-                                    { id: 'oauth2', name: 'OAuth 2.0 (oauth2)', desc: 'OAuth2 bearer access tokens' },
                                     { id: 'none', name: 'Legacy Fallback', desc: 'Global gateway authentication chain' },
                                 ].map(p => {
                                     const isSel = initialAuthPlugin === p.id;
