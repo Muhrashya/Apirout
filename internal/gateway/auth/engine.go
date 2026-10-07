@@ -51,12 +51,12 @@ func (e *Engine) Register(p Plugin) {
 }
 
 // Authenticate runs the auth chain for a request against an endpoint.
-// Resolution priority (Kong-compatible):
+// Resolution priority (Apirout Gateway pipeline):
 //   1. Route-level plugins (most specific)
 //   2. Service-level plugins
 //   3. Global plugins (least specific)
 //
-// Multiple plugins at the same level use OR logic (Kong default).
+// Multiple plugins at the same level use OR logic (Apirout Gateway default).
 func (e *Engine) Authenticate(r *http.Request, endpoint *models.Endpoint, serviceID *string) (*AuthResult, error) {
 	// Skip auth for public endpoints
 	if endpoint.IsPublic {

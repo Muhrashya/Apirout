@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
-import { gatewayApi, GatewayService, Route, QueryItem, GatewayDomain } from '../../api/gatewayApi';
+import { gatewayApi, GatewayService, Route, QueryItem, GatewayDomain, AuthPluginConfig } from '../../api/gatewayApi';
 import { useToast } from '../../components/Toast';
 import { IconArrowLeft, IconServer, IconBolt, IconQuery, IconCheck, IconGlobe } from '../../components/Icons';
 import { AuthPluginManager } from '../../components/AuthPluginManager';
@@ -20,7 +20,7 @@ export default function RouteFormPage() {
     const [queries, setQueries] = useState<QueryItem[]>([]);
     const [registeredDomains, setRegisteredDomains] = useState<GatewayDomain[]>([]);
     const [targetType, setTargetType] = useState<TargetType>('service');
-    const [initialAuthPlugin, setInitialAuthPlugin] = useState<string>('key-auth');
+    const [stagedPlugins, setStagedPlugins] = useState<AuthPluginConfig[]>([]);
 
     const [formData, setFormData] = useState({
         name: '',
@@ -63,7 +63,13 @@ export default function RouteFormPage() {
             setRegisteredDomains(loadedDomains);
 
             if (isEdit && id) {
-                const routeRes = await gatewayApi.getRoute(id);
+                const [routeRes, pluginsRes] = await Promise.all([
+                    gatewayApi.getRoute(id),
+                    gatewayApi.getAuthPlugins({ scope: 'route', entity_id: id }).catch(() => ({ data: [] }))
+                ]);
+                const pList = (pluginsRes as any)?.data || (Array.isArray(pluginsRes) ? pluginsRes : []);
+                setStagedPlugins(Array.isArray(pList) ? pList : []);
+
                 const r: any = (routeRes as any)?.data || routeRes;
                 if (r) {
                     if (r.query_id && !r.service_id) {
@@ -99,6 +105,22 @@ export default function RouteFormPage() {
                     });
                 }
             } else {
+                setStagedPlugins([
+                    {
+                        id: `staged-initial-${Date.now()}`,
+                        plugin_name: 'key-auth',
+                        scope: 'route',
+                        config: JSON.stringify({
+                            key_names: ['X-API-Key', 'api_key'],
+                            key_in_header: true,
+                            key_in_query: true,
+                            hide_credentials: true
+                        }),
+                        enabled: true,
+                        _stagedState: 'new'
+                    }
+                ]);
+
                 // Check query params for quick pre-selection
                 const qId = searchParams.get('query_id');
                 const sId = searchParams.get('service_id');
@@ -187,28 +209,42 @@ export default function RouteFormPage() {
             enabled: formData.enabled
         };
 
+        const syncStagedPlugins = async (targetRouteId: string) => {
+            for (const p of stagedPlugins) {
+                if (p._stagedState === 'new') {
+                    await gatewayApi.createAuthPlugin({
+                        plugin_name: p.plugin_name,
+                        scope: 'route',
+                        route_id: targetRouteId,
+                        config: p.config,
+                        enabled: p.enabled
+                    });
+                } else if (p._stagedState === 'modified') {
+                    await gatewayApi.updateAuthPlugin(p.id, {
+                        enabled: p.enabled,
+                        config: p.config
+                    });
+                } else if (p._stagedState === 'deleted') {
+                    await gatewayApi.deleteAuthPlugin(p.id);
+                }
+            }
+        };
+
         setIsSaving(true);
         try {
             if (isEdit && id) {
                 await gatewayApi.updateRoute(id, payload);
-                toast.success('Route updated successfully');
+                if (!formData.is_public) {
+                    await syncStagedPlugins(id);
+                }
+                toast.success('Route and authentication plugins updated successfully');
             } else {
                 const res: any = await gatewayApi.createRoute(payload);
                 const newRouteId = res?.data?.id || res?.id;
-                if (newRouteId && !formData.is_public && initialAuthPlugin !== 'none') {
-                    try {
-                        await gatewayApi.createAuthPlugin({
-                            plugin_name: initialAuthPlugin,
-                            scope: 'route',
-                            route_id: newRouteId,
-                            enabled: true,
-                            config: '{}'
-                        });
-                    } catch (e) {
-                        console.error('Failed to attach initial auth plugin', e);
-                    }
+                if (newRouteId && !formData.is_public) {
+                    await syncStagedPlugins(newRouteId);
                 }
-                toast.success('Route created successfully');
+                toast.success('Route and authentication plugins created successfully');
             }
             navigate('/routes');
         } catch (err: any) {
@@ -276,7 +312,7 @@ export default function RouteFormPage() {
                         {isEdit ? 'Edit Gateway Route' : 'New Gateway Route'}
                     </h1>
                     <p className="overview-subtitle">
-                        Kong-aligned route matching rules that bind client HTTP requests directly to backend services.
+                        Dynamic route matching rules that bind client HTTP requests directly to backend services.
                     </p>
                 </div>
                 <div className="overview-header-actions">
@@ -904,11 +940,6 @@ export default function RouteFormPage() {
                             onChange={e => {
                                 const isPub = e.target.checked;
                                 setFormData(prev => ({ ...prev, is_public: isPub }));
-                                if (isPub) {
-                                    setInitialAuthPlugin('none');
-                                } else if (initialAuthPlugin === 'none') {
-                                    setInitialAuthPlugin('key-auth');
-                                }
                             }}
                             style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                         />
@@ -919,59 +950,17 @@ export default function RouteFormPage() {
                 </div>
 
                 {/* Card 4: Inbound Authentication Plugins */}
-                {isEdit && id ? (
+                {!formData.is_public && (
                     <div style={{ marginBottom: '24px' }}>
-                        <AuthPluginManager scope="route" entityId={id} entityName={formData.name} />
+                        <AuthPluginManager
+                            scope="route"
+                            entityId={isEdit ? id : undefined}
+                            entityName={formData.name}
+                            stagedMode={true}
+                            stagedPlugins={stagedPlugins}
+                            onStagedPluginsChange={setStagedPlugins}
+                        />
                     </div>
-                ) : (
-                    !formData.is_public && (
-                        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                            <div style={{ marginBottom: '8px' }}>
-                                <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
-                                    Inbound Authentication Plugin
-                                </h2>
-                            </div>
-                            <p style={{ fontSize: '12.5px', color: '#64748b', margin: '0 0 16px 0' }}>
-                                Select the initial authentication plugin to protect this route. Multiple plugins can be chained (OR logic) after creation.
-                            </p>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-                                {[
-                                    { id: 'key-auth', name: 'API Key (key-auth)', desc: 'Header X-API-Key or ?api_key query' },
-                                    { id: 'jwt-auth', name: 'JWT Bearer (jwt-auth)', desc: 'Cryptographically signed JWT' },
-                                    { id: 'basic-auth', name: 'Basic Auth (basic-auth)', desc: 'Standard HTTP Basic user:pass' },
-                                    { id: 'hmac-auth', name: 'HMAC Signature (hmac-auth)', desc: 'HMAC-SHA256 signature headers' },
-                                    { id: 'none', name: 'Legacy Fallback', desc: 'Global gateway authentication chain' },
-                                ].map(p => {
-                                    const isSel = initialAuthPlugin === p.id;
-                                    return (
-                                        <div
-                                            key={p.id}
-                                            onClick={() => setInitialAuthPlugin(p.id)}
-                                            style={{
-                                                border: isSel ? '2px solid #2563eb' : '2px solid #e2e8f0',
-                                                backgroundColor: isSel ? '#eff6ff' : '#ffffff',
-                                                borderRadius: '8px',
-                                                padding: '12px',
-                                                cursor: 'pointer',
-                                                transition: 'border-color 150ms ease, background-color 150ms ease'
-                                            }}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                <span style={{ fontSize: '13px', fontWeight: 600, color: isSel ? '#1d4ed8' : '#1e293b' }}>
-                                                    {p.name}
-                                                </span>
-                                                {isSel && <IconCheck width={14} height={14} style={{ color: '#2563eb' }} />}
-                                            </div>
-                                            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px' }}>
-                                                {p.desc}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )
                 )}
 
                 {/* Bottom Action Bar */}

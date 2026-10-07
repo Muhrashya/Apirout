@@ -376,7 +376,7 @@ export default function ApiLogsPage() {
             </div>
 
             {/* ======================================================== */}
-            {/* SLIDE-OVER REQUEST INSPECTOR DRAWER (MATCHING KONG IMAGE 2) */}
+            {/* SLIDE-OVER REQUEST INSPECTOR DRAWER */}
             {/* ======================================================== */}
             {selectedReq && (
                 <>

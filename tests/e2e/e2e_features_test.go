@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1231,6 +1232,172 @@ func TestE2E_UnrestrictedConsumerDefaultAccessToProtectedRoutes(t *testing.T) {
 	}
 	if respHeaders.Get("X-Request-ID") == "" {
 		t.Errorf("expected non-empty X-Request-ID on authenticated response")
+	}
+}
+
+func TestE2E_MultiPluginAndScopeGuardrails(t *testing.T) {
+	testSuffix := fmt.Sprintf("%d", time.Now().UnixNano()%100000)
+	svcName := "multi-plugin-svc-" + testSuffix
+	routePath := "/api/v1/multi-plugin-" + testSuffix
+	username := "multi-user-" + testSuffix
+	password := "SecretPass123!"
+
+	// 1. Create Consumer with username and password
+	consumerPayload := map[string]any{
+		"username":     username,
+		"status":       "active",
+		"password":     password,
+		"endpoint_ids": []string{},
+	}
+	code, consRes := adminRequest(t, "POST", "/api/v1/consumers", consumerPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create consumer: %d %v", code, consRes)
+	}
+	consumerID := extractID(consRes)
+	t.Cleanup(func() {
+		if consumerID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/consumers/"+consumerID, nil)
+		}
+	})
+
+	// 2. Create API Key for consumer
+	keyPayload := map[string]any{
+		"name":     "Multi Plugin Key",
+		"key_type": "api-key",
+	}
+	code, credRes := adminRequest(t, "POST", fmt.Sprintf("/api/v1/consumers/%s/credentials", consumerID), keyPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create credential: %d %v", code, credRes)
+	}
+	apiKey := fmt.Sprintf("%v", credRes["key_secret"])
+	if apiKey == "" || apiKey == "<nil>" {
+		if d, ok := credRes["data"].(map[string]any); ok {
+			apiKey = fmt.Sprintf("%v", d["key_secret"])
+		}
+	}
+
+	// 3. Create Service pointing to status health
+	svcPayload := map[string]any{
+		"name":     svcName,
+		"protocol": "http",
+		"host":     "127.0.0.1",
+		"port":     8100,
+		"path":     "/health",
+		"enabled":  true,
+	}
+	code, svcRes := adminRequest(t, "POST", "/api/v1/services", svcPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create service: %d %v", code, svcRes)
+	}
+	svcID := extractID(svcRes)
+	t.Cleanup(func() {
+		if svcID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/services/"+svcID, nil)
+		}
+	})
+
+	// 4. Create Protected Route
+	epPayload := map[string]any{
+		"service_id": svcID,
+		"method":     "GET",
+		"path":       routePath,
+		"strip_path": true,
+		"is_public":  false,
+		"enabled":    true,
+	}
+	code, epRes := adminRequest(t, "POST", "/api/v1/endpoints", epPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create endpoint: %d %v", code, epRes)
+	}
+	epID := extractID(epRes)
+	t.Cleanup(func() {
+		if epID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/endpoints/"+epID, nil)
+		}
+	})
+
+	// 5. Attach "key-auth" plugin to route
+	p1Payload := map[string]any{
+		"plugin_name": "key-auth",
+		"scope":       "route",
+		"route_id":    epID,
+		"enabled":     true,
+		"config":      map[string]any{},
+	}
+	code, p1Res := adminRequest(t, "POST", "/api/v1/auth-plugins", p1Payload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to attach key-auth plugin: %d %v", code, p1Res)
+	}
+	p1ID := extractID(p1Res)
+	t.Cleanup(func() {
+		if p1ID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/auth-plugins/"+p1ID, nil)
+		}
+	})
+
+	// 6. Attempt to attach duplicate "key-auth" plugin to same route -> MUST return 400 Bad Request
+	code, dupRes := adminRequest(t, "POST", "/api/v1/auth-plugins", p1Payload)
+	if code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request on duplicate plugin creation, got %d: %v", code, dupRes)
+	}
+
+	// 7. Attach "basic-auth" plugin to route
+	p2Payload := map[string]any{
+		"plugin_name": "basic-auth",
+		"scope":       "route",
+		"route_id":    epID,
+		"enabled":     true,
+		"config":      map[string]any{},
+	}
+	code, p2Res := adminRequest(t, "POST", "/api/v1/auth-plugins", p2Payload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to attach basic-auth plugin: %d %v", code, p2Res)
+	}
+	p2ID := extractID(p2Res)
+	t.Cleanup(func() {
+		if p2ID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/auth-plugins/"+p2ID, nil)
+		}
+	})
+
+	time.Sleep(300 * time.Millisecond)
+
+	// 8. Request without credentials -> 401 Unauthorized
+	code, _, _ = gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
+	if code != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized without credentials, got %d", code)
+	}
+
+	// 9. Request with invalid API Key -> 401 Unauthorized
+	code, _, _ = gatewayRequestWithHeaders(t, "GET", routePath, map[string]string{"X-API-Key": "invalid-key-999"}, nil)
+	if code != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized with invalid API key, got %d", code)
+	}
+
+	// 10. Logical OR: Request with valid API Key -> 200 OK
+	code, headers, body := gatewayRequestWithHeaders(t, "GET", routePath, map[string]string{"X-API-Key": apiKey}, nil)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 OK with valid API key under multi-plugin OR, got %d: %s", code, string(body))
+	}
+	if headers.Get("X-Request-ID") == "" {
+		t.Errorf("expected non-empty X-Request-ID on valid key-auth response")
+	}
+
+	// 11. Logical OR: Request with valid Basic Auth -> 200 OK
+	basicAuthVal := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+	code, headers, body = gatewayRequestWithHeaders(t, "GET", routePath, map[string]string{"Authorization": basicAuthVal}, nil)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 OK with valid Basic auth under multi-plugin OR, got %d: %s", code, string(body))
+	}
+	if headers.Get("X-Request-ID") == "" {
+		t.Errorf("expected non-empty X-Request-ID on valid basic-auth response")
+	}
+
+	// 12. Request with invalid Basic Auth credentials -> 401 Unauthorized
+	badBasicAuthVal := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":wrongpass"))
+	code, _, _ = gatewayRequestWithHeaders(t, "GET", routePath, map[string]string{"Authorization": badBasicAuthVal}, nil)
+	if code != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized with wrong basic auth password, got %d", code)
 	}
 }
 

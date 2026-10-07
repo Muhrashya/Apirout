@@ -280,7 +280,7 @@ export const gatewayApi = {
     deleteOutboundAuth: (serviceId: string) =>
         apiClient.delete(`/services/${serviceId}/outbound-auth`),
 
-    // Monitoring & Request Logs (Kong Analytics Explorer)
+    // Monitoring & Request Logs (Gateway Analytics Explorer)
     getRequests: (params?: { page?: number; limit?: number; search?: string; method?: string; status?: string } | number) => {
         const q = new URLSearchParams();
         if (typeof params === 'number') {
@@ -319,6 +319,7 @@ export interface AuthPluginConfig {
     enabled: boolean;
     created_at?: string;
     updated_at?: string;
+    _stagedState?: 'new' | 'modified' | 'deleted';
 }
 
 export interface ServiceOutboundAuth {

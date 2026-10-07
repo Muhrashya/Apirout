@@ -347,7 +347,7 @@ export default function ConsumersPage() {
                 <div className="overview-title-col">
                     <h1 className="overview-title">Consumers &amp; Authentication</h1>
                     <p className="overview-subtitle">
-                        Kong-aligned external API client management. Issue API keys, enforce consumer group rate limits, and restrict route access per consumer.
+                        External API client management. Issue API keys, enforce consumer group rate limits, and restrict route access per consumer.
                     </p>
                 </div>
 

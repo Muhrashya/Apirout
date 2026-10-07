@@ -166,7 +166,7 @@ export default function RoutesPage() {
                 <div className="overview-title-col">
                     <h1 className="overview-title">Gateway Routes</h1>
                     <p className="overview-subtitle">
-                        Kong-aligned request routing layer. Maps incoming HTTP requests to backend Services, Upstream pools, and Instant Database queries.
+                        High-performance request routing layer. Maps incoming HTTP requests to backend Services, Upstream pools, and Instant Database queries.
                     </p>
                 </div>
 

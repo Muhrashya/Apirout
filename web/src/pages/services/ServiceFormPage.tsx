@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { gatewayApi, GatewayService, Upstream, Connection } from '../../api/gatewayApi';
+import { gatewayApi, GatewayService, Upstream, Connection, AuthPluginConfig } from '../../api/gatewayApi';
 import { useToast } from '../../components/Toast';
 import {
     IconServer, IconLayers, IconDatabase, IconArrowLeft
@@ -17,6 +17,7 @@ export default function ServiceFormPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [upstreams, setUpstreams] = useState<Upstream[]>([]);
     const [connections, setConnections] = useState<Connection[]>([]);
+    const [stagedPlugins, setStagedPlugins] = useState<AuthPluginConfig[]>([]);
 
     const [targetMode, setTargetMode] = useState<'direct' | 'upstream' | 'database'>('direct');
     const [formData, setFormData] = useState({
@@ -106,7 +107,18 @@ export default function ServiceFormPage() {
                     } catch (e) {
                         console.error('Failed to load outbound auth', e);
                     }
+
+                    // Load Inbound Auth Plugins
+                    try {
+                        const pluginsRes = await gatewayApi.getAuthPlugins({ scope: 'service', entity_id: id });
+                        const pList = (pluginsRes as any)?.data || (Array.isArray(pluginsRes) ? pluginsRes : []);
+                        setStagedPlugins(Array.isArray(pList) ? pList : []);
+                    } catch (e) {
+                        console.error('Failed to load service auth plugins', e);
+                    }
                 }
+            } else {
+                setStagedPlugins([]);
             }
         } catch (err: any) {
             toast.error(err.message || 'Failed to load service data');
@@ -175,6 +187,30 @@ export default function ServiceFormPage() {
             }
 
             if (serviceId) {
+                // Sync staged inbound auth plugins
+                for (const p of stagedPlugins) {
+                    try {
+                        if (p._stagedState === 'new') {
+                            await gatewayApi.createAuthPlugin({
+                                plugin_name: p.plugin_name,
+                                scope: 'service',
+                                service_id: serviceId,
+                                config: p.config,
+                                enabled: p.enabled
+                            });
+                        } else if (p._stagedState === 'modified') {
+                            await gatewayApi.updateAuthPlugin(p.id, {
+                                enabled: p.enabled,
+                                config: p.config
+                            });
+                        } else if (p._stagedState === 'deleted') {
+                            await gatewayApi.deleteAuthPlugin(p.id);
+                        }
+                    } catch (pluginErr: any) {
+                        console.error('Failed to sync staged plugin:', p.plugin_name, pluginErr);
+                    }
+                }
+
                 if (targetMode !== 'database' && outboundAuth.enabled && outboundAuth.auth_type) {
                     await gatewayApi.setOutboundAuth(serviceId, {
                         auth_type: outboundAuth.auth_type,
@@ -836,12 +872,17 @@ export default function ServiceFormPage() {
                 </div>
                 )}
 
-                {/* Card 5: Inbound Auth Plugins (if editing existing service) */}
-                {isEdit && id && (
-                    <div style={{ marginBottom: '24px' }}>
-                        <AuthPluginManager scope="service" entityId={id} entityName={formData.name} />
-                    </div>
-                )}
+                {/* Card 5: Inbound Auth Plugins */}
+                <div style={{ marginBottom: '24px' }}>
+                    <AuthPluginManager
+                        scope="service"
+                        entityId={isEdit ? id : undefined}
+                        entityName={formData.name}
+                        stagedMode={true}
+                        stagedPlugins={stagedPlugins}
+                        onStagedPluginsChange={setStagedPlugins}
+                    />
+                </div>
 
                 {/* Bottom Sticky Action Bar */}
                 <div style={{

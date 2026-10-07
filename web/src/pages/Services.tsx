@@ -119,7 +119,7 @@ export default function ServicesPage() {
                 <div className="overview-title-col">
                     <h1 className="overview-title">Gateway Services</h1>
                     <p className="overview-subtitle">
-                        Kong-aligned logical backend services. Each service represents an upstream application, host, or load-balancing pool.
+                        Logical backend services. Each service represents an upstream application, host, or load-balancing pool.
                     </p>
                 </div>
 

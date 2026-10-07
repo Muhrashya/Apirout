@@ -137,6 +137,28 @@ func (h *AuthPluginsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Enabled:    enabled,
 	}
 
+	// Guard against duplicate plugin of same type on the entity
+	var entityID string
+	if req.RouteID != nil && *req.RouteID != "" {
+		entityID = *req.RouteID
+	} else if req.ServiceID != nil && *req.ServiceID != "" {
+		entityID = *req.ServiceID
+	} else if req.ConsumerID != nil && *req.ConsumerID != "" {
+		entityID = *req.ConsumerID
+	}
+
+	if entityID != "" || scope == "global" {
+		existingPlugins, err := h.registry.ListAuthPlugins(scope, entityID)
+		if err == nil {
+			for _, ep := range existingPlugins {
+				if ep.PluginName == req.PluginName {
+					httputil.WriteJSONError(w, http.StatusBadRequest, "a "+req.PluginName+" plugin is already attached to this "+scope)
+					return
+				}
+			}
+		}
+	}
+
 	if err := h.registry.CreateAuthPlugin(plugin); err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create auth plugin: "+err.Error())
 		return
@@ -194,6 +216,30 @@ func (h *AuthPluginsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Enabled != nil {
 		existing.Enabled = *req.Enabled
+	}
+
+	// Guard against duplicate plugin of same type on the entity
+	if req.PluginName != "" {
+		var entityID string
+		if existing.RouteID != nil && *existing.RouteID != "" {
+			entityID = *existing.RouteID
+		} else if existing.ServiceID != nil && *existing.ServiceID != "" {
+			entityID = *existing.ServiceID
+		} else if existing.ConsumerID != nil && *existing.ConsumerID != "" {
+			entityID = *existing.ConsumerID
+		}
+
+		if entityID != "" || existing.Scope == "global" {
+			existingPlugins, err := h.registry.ListAuthPlugins(existing.Scope, entityID)
+			if err == nil {
+				for _, ep := range existingPlugins {
+					if ep.ID != existing.ID && ep.PluginName == existing.PluginName {
+						httputil.WriteJSONError(w, http.StatusBadRequest, "a "+existing.PluginName+" plugin is already attached to this "+existing.Scope)
+						return
+					}
+				}
+			}
+		}
 	}
 
 	if err := h.registry.UpdateAuthPlugin(existing); err != nil {

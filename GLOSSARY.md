@@ -86,3 +86,7 @@ The cloud-native architectural pattern where SSL/TLS termination and certificate
 ### Dynamic Route CORS
 Fine-grained, per-endpoint Cross-Origin Resource Sharing headers (`endpoints.cors_origins`) evaluated dynamically during request execution to allow specific origin whitelists per route.
 
+### Staged Plugin Pipeline
+A form-level lifecycle pattern in the management console where gateway plugins are drafted, configured, and staged in local state, committing to the control plane and live Data Plane only upon explicit manual form submission ("Save" / "Update"), preventing accidental runtime mutations.
+
+

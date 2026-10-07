@@ -223,7 +223,7 @@ export default function UpstreamsPage() {
                 <div className="overview-title-col">
                     <h1 className="overview-title">Gateway Upstreams &amp; Targets</h1>
                     <p className="overview-subtitle">
-                        Kong-aligned load balancing pools. Upstreams distribute incoming traffic across Target instances with active health checks.
+                        High-performance load balancing pools. Upstreams distribute incoming traffic across Target instances with resilient health checks.
                     </p>
                 </div>
 

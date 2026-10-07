@@ -4,11 +4,18 @@ import { useToast } from './Toast';
 import { Modal } from './Modal';
 import { IconKey, IconPlug, IconPlus, IconTrash } from './Icons';
 
+export interface StagedAuthPlugin extends AuthPluginConfig {
+    _stagedState?: 'new' | 'modified' | 'deleted';
+}
+
 interface AuthPluginManagerProps {
     scope: 'route' | 'service' | 'consumer' | 'global';
     entityId?: string;
     entityName?: string;
     onPluginChange?: () => void;
+    stagedMode?: boolean;
+    stagedPlugins?: AuthPluginConfig[];
+    onStagedPluginsChange?: (plugins: AuthPluginConfig[]) => void;
 }
 
 const AVAILABLE_PLUGINS = [
@@ -59,10 +66,13 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
     scope,
     entityId,
     entityName: _entityName,
-    onPluginChange
+    onPluginChange,
+    stagedMode = false,
+    stagedPlugins,
+    onStagedPluginsChange
 }) => {
     const toast = useToast();
-    const [plugins, setPlugins] = useState<AuthPluginConfig[]>([]);
+    const [internalPlugins, setInternalPlugins] = useState<AuthPluginConfig[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [selectedPluginName, setSelectedPluginName] = useState('key-auth');
@@ -80,11 +90,14 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
     const [hmacAlgo, setHmacAlgo] = useState('hmac-sha256');
     const [oauthScopes, setOauthScopes] = useState('read, write');
 
+    const isStaged = !!stagedMode;
+    const currentPlugins = isStaged ? (stagedPlugins || []) : internalPlugins;
+
     useEffect(() => {
-        if (entityId || scope === 'global') {
+        if (!isStaged && (entityId || scope === 'global')) {
             loadPlugins();
         }
-    }, [scope, entityId]);
+    }, [scope, entityId, isStaged]);
 
     const loadPlugins = async () => {
         setIsLoading(true);
@@ -94,7 +107,7 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                 entity_id: entityId
             });
             const data = (res as any)?.data || [];
-            setPlugins(Array.isArray(data) ? data : []);
+            setInternalPlugins(Array.isArray(data) ? data : []);
         } catch (err: any) {
             console.error('Failed to load auth plugins', err);
         } finally {
@@ -103,23 +116,32 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
     };
 
     const openAddModal = (pName = 'key-auth') => {
-        setSelectedPluginName(pName);
-        const meta = AVAILABLE_PLUGINS.find(p => p.name === pName);
+        const activePlugins = currentPlugins.filter(p => p._stagedState !== 'deleted');
+        const attachedNames = new Set(activePlugins.map(p => p.plugin_name));
+        let targetName = pName;
+        if (attachedNames.has(targetName)) {
+            const firstAvailable = AVAILABLE_PLUGINS.find(p => !attachedNames.has(p.name));
+            if (firstAvailable) {
+                targetName = firstAvailable.name;
+            }
+        }
+        setSelectedPluginName(targetName);
+        const meta = AVAILABLE_PLUGINS.find(p => p.name === targetName);
         if (meta) {
             setPluginConfigJson(JSON.stringify(meta.defaultConfig, null, 2));
-            if (pName === 'key-auth') {
+            if (targetName === 'key-auth') {
                 setKeyNamesInput('X-API-Key, api_key');
                 setKeyInHeader(true);
                 setKeyInQuery(true);
                 setHideCredentials(true);
-            } else if (pName === 'jwt-auth') {
+            } else if (targetName === 'jwt-auth') {
                 setJwtAlgorithms('HS256');
                 setJwtKeyClaim('iss');
                 setJwtVerifyExp(true);
-            } else if (pName === 'hmac-auth') {
+            } else if (targetName === 'hmac-auth') {
                 setHmacClockSkew(300);
                 setHmacAlgo('hmac-sha256');
-            } else if (pName === 'oauth2') {
+            } else if (targetName === 'oauth2') {
                 setOauthScopes('read, write');
             }
         }
@@ -175,6 +197,28 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
         e.preventDefault();
         try {
             const configObj = buildConfigObject();
+
+            if (isStaged) {
+                const newPlugin: AuthPluginConfig = {
+                    id: `staged-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                    plugin_name: selectedPluginName,
+                    scope: scope,
+                    config: JSON.stringify(configObj),
+                    enabled: true,
+                    _stagedState: 'new',
+                    created_at: new Date().toISOString(),
+                    ...(scope === 'route' && entityId ? { route_id: entityId } : {}),
+                    ...(scope === 'service' && entityId ? { service_id: entityId } : {}),
+                    ...(scope === 'consumer' && entityId ? { consumer_id: entityId } : {})
+                };
+                if (onStagedPluginsChange) {
+                    onStagedPluginsChange([...currentPlugins, newPlugin]);
+                }
+                toast.success(`Staged ${selectedPluginName} (pending save)`);
+                setIsAddModalOpen(false);
+                return;
+            }
+
             const payload: Partial<AuthPluginConfig> = {
                 plugin_name: selectedPluginName,
                 scope: scope,
@@ -197,6 +241,24 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
     };
 
     const handleToggleEnabled = async (plugin: AuthPluginConfig) => {
+        if (isStaged) {
+            const updated = currentPlugins.map(p => {
+                if (p.id !== plugin.id) return p;
+                const nextEnabled = !p.enabled;
+                const nextState: 'new' | 'modified' = p._stagedState === 'new' ? 'new' : 'modified';
+                return {
+                    ...p,
+                    enabled: nextEnabled,
+                    _stagedState: nextState
+                };
+            });
+            if (onStagedPluginsChange) {
+                onStagedPluginsChange(updated);
+            }
+            toast.success(`${plugin.plugin_name} set to ${!plugin.enabled ? 'Enabled' : 'Disabled'} (pending save)`);
+            return;
+        }
+
         try {
             await gatewayApi.updateAuthPlugin(plugin.id, {
                 enabled: !plugin.enabled
@@ -210,6 +272,28 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
     };
 
     const handleDeletePlugin = async (id: string, name: string) => {
+        if (isStaged) {
+            const target = currentPlugins.find(p => p.id === id);
+            if (!target) return;
+            if (target._stagedState === 'new') {
+                const updated = currentPlugins.filter(p => p.id !== id);
+                if (onStagedPluginsChange) {
+                    onStagedPluginsChange(updated);
+                }
+                toast.success(`Discarded staged ${name} plugin`);
+            } else {
+                const updated = currentPlugins.map(p => {
+                    if (p.id !== id) return p;
+                    return { ...p, _stagedState: 'deleted' as const };
+                });
+                if (onStagedPluginsChange) {
+                    onStagedPluginsChange(updated);
+                }
+                toast.success(`Marked ${name} for removal (pending save)`);
+            }
+            return;
+        }
+
         if (!window.confirm(`Are you sure you want to remove the ${name} plugin from this ${scope}?`)) {
             return;
         }
@@ -221,6 +305,18 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
         } catch (err: any) {
             toast.error(err.message || 'Failed to remove plugin');
         }
+    };
+
+    const handleUndoDelete = (id: string, name: string) => {
+        if (!isStaged) return;
+        const updated = currentPlugins.map(p => {
+            if (p.id !== id) return p;
+            return { ...p, _stagedState: undefined };
+        });
+        if (onStagedPluginsChange) {
+            onStagedPluginsChange(updated);
+        }
+        toast.success(`Restored ${name} plugin`);
     };
 
     return (
@@ -253,11 +349,29 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                         <IconPlug width={18} height={18} />
                     </div>
                     <div>
-                        <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
-                            Authentication Plugins
-                        </h3>
-                        <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
-                            Inbound client identity verification (Kong Gateway plugin chain)
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                                Authentication Plugins
+                            </h3>
+                            {isStaged && (
+                                <span style={{
+                                    fontSize: '11px',
+                                    color: '#0369a1',
+                                    backgroundColor: '#e0f2fe',
+                                    border: '1px solid #bae6fd',
+                                    padding: '1px 8px',
+                                    borderRadius: '12px',
+                                    fontWeight: 600,
+                                    letterSpacing: '0.02em'
+                                }}>
+                                    STAGED DRAFT MODE
+                                </span>
+                            )}
+                        </div>
+                        <p style={{ fontSize: '12px', color: '#64748b', margin: '2px 0 0 0' }}>
+                            {isStaged
+                                ? 'Inbound client identity verification (staged in form; applies when saved)'
+                                : 'Inbound client identity verification (Apirout Gateway plugin chain)'}
                         </p>
                     </div>
                 </div>
@@ -277,7 +391,7 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                 <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
                     Loading auth plugins...
                 </div>
-            ) : plugins.length === 0 ? (
+            ) : currentPlugins.length === 0 ? (
                 <div style={{
                     padding: '24px 16px',
                     textAlign: 'center',
@@ -316,13 +430,17 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                 </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {plugins.map(p => {
+                    {currentPlugins.map(p => {
                         let parsedConfig: any = {};
                         try {
                             parsedConfig = typeof p.config === 'string' ? JSON.parse(p.config) : p.config;
                         } catch {
                             parsedConfig = {};
                         }
+
+                        const isPendingDelete = p._stagedState === 'deleted';
+                        const isNewStaged = p._stagedState === 'new';
+                        const isModified = p._stagedState === 'modified';
 
                         return (
                             <div
@@ -332,10 +450,19 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                     alignItems: 'center',
                                     justifyContent: 'space-between',
                                     padding: '12px 16px',
-                                    backgroundColor: p.enabled ? '#ffffff' : '#f8fafc',
-                                    border: '1px solid #e2e8f0',
+                                    backgroundColor: isPendingDelete
+                                        ? '#fef2f2'
+                                        : p.enabled
+                                        ? '#ffffff'
+                                        : '#f8fafc',
+                                    border: isPendingDelete
+                                        ? '1px dashed #f87171'
+                                        : isNewStaged
+                                        ? '1px solid #fcd34d'
+                                        : '1px solid #e2e8f0',
                                     borderRadius: '8px',
-                                    opacity: p.enabled ? 1 : 0.75
+                                    opacity: isPendingDelete ? 0.7 : p.enabled ? 1 : 0.75,
+                                    transition: 'all 150ms ease'
                                 }}
                             >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -343,8 +470,16 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                         width: '36px',
                                         height: '36px',
                                         borderRadius: '8px',
-                                        backgroundColor: p.enabled ? '#eff6ff' : '#f1f5f9',
-                                        color: p.enabled ? '#2563eb' : '#94a3b8',
+                                        backgroundColor: isPendingDelete
+                                            ? '#fee2e2'
+                                            : p.enabled
+                                            ? '#eff6ff'
+                                            : '#f1f5f9',
+                                        color: isPendingDelete
+                                            ? '#ef4444'
+                                            : p.enabled
+                                            ? '#2563eb'
+                                            : '#94a3b8',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center'
@@ -353,19 +488,65 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                     </div>
                                     <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>
+                                            <span style={{
+                                                fontSize: '14px',
+                                                fontWeight: 600,
+                                                color: isPendingDelete ? '#991b1b' : '#0f172a',
+                                                textDecoration: isPendingDelete ? 'line-through' : 'none'
+                                            }}>
                                                 {p.plugin_name}
                                             </span>
-                                            <span style={{
-                                                fontSize: '10.5px',
-                                                padding: '1px 6px',
-                                                borderRadius: '4px',
-                                                backgroundColor: p.enabled ? '#dcfce7' : '#fee2e2',
-                                                color: p.enabled ? '#166534' : '#991b1b',
-                                                fontWeight: 600
-                                            }}>
-                                                {p.enabled ? 'ACTIVE' : 'DISABLED'}
-                                            </span>
+
+                                            {/* Status Badge */}
+                                            {isPendingDelete ? (
+                                                <span style={{
+                                                    fontSize: '10.5px',
+                                                    padding: '2px 7px',
+                                                    borderRadius: '4px',
+                                                    backgroundColor: '#fee2e2',
+                                                    color: '#b91c1c',
+                                                    fontWeight: 700,
+                                                    border: '1px solid #fecaca'
+                                                }}>
+                                                    PENDING REMOVAL
+                                                </span>
+                                            ) : isNewStaged ? (
+                                                <span style={{
+                                                    fontSize: '10.5px',
+                                                    padding: '2px 7px',
+                                                    borderRadius: '4px',
+                                                    backgroundColor: '#fef3c7',
+                                                    color: '#b45309',
+                                                    fontWeight: 700,
+                                                    border: '1px solid #fde68a'
+                                                }}>
+                                                    PENDING SAVE / DRAFT
+                                                </span>
+                                            ) : isModified ? (
+                                                <span style={{
+                                                    fontSize: '10.5px',
+                                                    padding: '2px 7px',
+                                                    borderRadius: '4px',
+                                                    backgroundColor: '#eff6ff',
+                                                    color: '#1d4ed8',
+                                                    fontWeight: 700,
+                                                    border: '1px solid #bfdbfe'
+                                                }}>
+                                                    MODIFIED (PENDING SAVE)
+                                                </span>
+                                            ) : (
+                                                <span style={{
+                                                    fontSize: '10.5px',
+                                                    padding: '1px 6px',
+                                                    borderRadius: '4px',
+                                                    backgroundColor: p.enabled ? '#dcfce7' : '#fee2e2',
+                                                    color: p.enabled ? '#166534' : '#991b1b',
+                                                    fontWeight: 600
+                                                }}>
+                                                    {p.enabled ? 'ACTIVE' : 'DISABLED'}
+                                                </span>
+                                            )}
+
                                             <span style={{
                                                 fontSize: '10.5px',
                                                 padding: '1px 6px',
@@ -377,7 +558,12 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                                 {p.scope}
                                             </span>
                                         </div>
-                                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
+                                        <div style={{
+                                            fontSize: '12px',
+                                            color: isPendingDelete ? '#94a3b8' : '#64748b',
+                                            marginTop: '3px',
+                                            textDecoration: isPendingDelete ? 'line-through' : 'none'
+                                        }}>
                                             {p.plugin_name === 'key-auth' && (
                                                 <span>Keys: {Array.isArray(parsedConfig?.key_names) ? parsedConfig.key_names.join(', ') : 'X-API-Key'}</span>
                                             )}
@@ -398,38 +584,59 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                 </div>
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleToggleEnabled(p)}
-                                        style={{
-                                            border: '1px solid #e2e8f0',
-                                            backgroundColor: '#ffffff',
-                                            padding: '5px 10px',
-                                            borderRadius: '6px',
-                                            fontSize: '12px',
-                                            cursor: 'pointer',
-                                            color: p.enabled ? '#d97706' : '#16a34a',
-                                            fontWeight: 500
-                                        }}
-                                    >
-                                        {p.enabled ? 'Disable' : 'Enable'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleDeletePlugin(p.id, p.plugin_name)}
-                                        title="Remove Plugin"
-                                        style={{
-                                            border: '1px solid #fee2e2',
-                                            backgroundColor: '#ffffff',
-                                            padding: '5px 8px',
-                                            borderRadius: '6px',
-                                            fontSize: '12px',
-                                            cursor: 'pointer',
-                                            color: '#dc2626'
-                                        }}
-                                    >
-                                        <IconTrash width={14} height={14} />
-                                    </button>
+                                    {isPendingDelete ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleUndoDelete(p.id, p.plugin_name)}
+                                            style={{
+                                                border: '1px solid #93c5fd',
+                                                backgroundColor: '#eff6ff',
+                                                padding: '5px 12px',
+                                                borderRadius: '6px',
+                                                fontSize: '12px',
+                                                cursor: 'pointer',
+                                                color: '#1d4ed8',
+                                                fontWeight: 600
+                                            }}
+                                        >
+                                            Undo Removal
+                                        </button>
+                                    ) : (
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleToggleEnabled(p)}
+                                                style={{
+                                                    border: '1px solid #e2e8f0',
+                                                    backgroundColor: '#ffffff',
+                                                    padding: '5px 10px',
+                                                    borderRadius: '6px',
+                                                    fontSize: '12px',
+                                                    cursor: 'pointer',
+                                                    color: p.enabled ? '#d97706' : '#16a34a',
+                                                    fontWeight: 500
+                                                }}
+                                            >
+                                                {p.enabled ? 'Disable' : 'Enable'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeletePlugin(p.id, p.plugin_name)}
+                                                title="Remove Plugin"
+                                                style={{
+                                                    border: '1px solid #fee2e2',
+                                                    backgroundColor: '#ffffff',
+                                                    padding: '5px 8px',
+                                                    borderRadius: '6px',
+                                                    fontSize: '12px',
+                                                    cursor: 'pointer',
+                                                    color: '#dc2626'
+                                                }}
+                                            >
+                                                <IconTrash width={14} height={14} />
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         );
@@ -449,45 +656,72 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                             <label className="label">Plugin Type</label>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginTop: '6px' }}>
                                 {AVAILABLE_PLUGINS.map(p => {
+                                    const isAttached = currentPlugins.some(
+                                        existing => existing.plugin_name === p.name && existing._stagedState !== 'deleted'
+                                    );
                                     const isSel = selectedPluginName === p.name;
                                     return (
                                         <div
                                             key={p.name}
-                                            onClick={() => handlePluginTypeSelect(p.name)}
+                                            onClick={() => {
+                                                if (!isAttached) handlePluginTypeSelect(p.name);
+                                            }}
                                             style={{
-                                                border: isSel ? '2px solid #2563eb' : '2px solid #e2e8f0',
-                                                backgroundColor: isSel ? '#eff6ff' : '#ffffff',
+                                                border: isAttached
+                                                    ? '1px dashed #cbd5e1'
+                                                    : isSel
+                                                    ? '2px solid #2563eb'
+                                                    : '2px solid #e2e8f0',
+                                                backgroundColor: isAttached
+                                                    ? '#f8fafc'
+                                                    : isSel
+                                                    ? '#eff6ff'
+                                                    : '#ffffff',
+                                                opacity: isAttached ? 0.6 : 1,
                                                 borderRadius: '8px',
                                                 padding: '10px',
-                                                cursor: 'pointer',
+                                                cursor: isAttached ? 'not-allowed' : 'pointer',
                                                 textAlign: 'center',
-                                                transition: 'border-color 150ms ease, background-color 150ms ease'
+                                                transition: 'all 150ms ease'
                                             }}
                                         >
-                                            <div style={{ fontWeight: 600, fontSize: '13px', color: isSel ? '#1d4ed8' : '#1e293b' }}>
+                                            <div style={{ fontWeight: 600, fontSize: '13px', color: isAttached ? '#64748b' : isSel ? '#1d4ed8' : '#1e293b' }}>
                                                 {p.name}
                                             </div>
                                             <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                                                 {p.label.split(' ')[0]}
                                             </div>
+                                            {isAttached && (
+                                                <div style={{
+                                                    fontSize: '9.5px',
+                                                    color: '#b91c1c',
+                                                    backgroundColor: '#fee2e2',
+                                                    borderRadius: '4px',
+                                                    padding: '1px 4px',
+                                                    marginTop: '4px',
+                                                    display: 'inline-block',
+                                                    fontWeight: 600
+                                                }}>
+                                                    Already Attached
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 })}
                             </div>
                         </div>
 
-                        {/* Plugin Specific Configuration Builder */}
+                        {/* CONFIG BUILDER FOR SELECTED PLUGIN */}
                         {selectedPluginName === 'key-auth' && (
                             <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-                                <div style={{ marginBottom: '12px' }}>
-                                    <label className="label">Header / Param Key Names (comma-separated)</label>
+                                <div className="form-group" style={{ marginBottom: '10px' }}>
+                                    <label className="label">API Key Param/Header Names (comma-separated)</label>
                                     <input
                                         type="text"
                                         className="input"
                                         value={keyNamesInput}
                                         onChange={e => setKeyNamesInput(e.target.value)}
                                         placeholder="X-API-Key, api_key"
-                                        required
                                     />
                                 </div>
                                 <div style={{ display: 'flex', gap: '16px' }}>
@@ -497,7 +731,7 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                             checked={keyInHeader}
                                             onChange={e => setKeyInHeader(e.target.checked)}
                                         />
-                                        <span>Check Headers</span>
+                                        Check Header
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', cursor: 'pointer' }}>
                                         <input
@@ -505,7 +739,7 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                             checked={keyInQuery}
                                             onChange={e => setKeyInQuery(e.target.checked)}
                                         />
-                                        <span>Check Query Params</span>
+                                        Check Query
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', cursor: 'pointer' }}>
                                         <input
@@ -513,7 +747,7 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                             checked={hideCredentials}
                                             onChange={e => setHideCredentials(e.target.checked)}
                                         />
-                                        <span>Hide from Upstream</span>
+                                        Hide Credentials from Upstream
                                     </label>
                                 </div>
                             </div>
@@ -521,8 +755,8 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
 
                         {selectedPluginName === 'jwt-auth' && (
                             <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                                    <div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                    <div className="form-group">
                                         <label className="label">Allowed Algorithms</label>
                                         <input
                                             type="text"
@@ -532,8 +766,8 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                             placeholder="HS256, RS256"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="label">Key Claim Name</label>
+                                    <div className="form-group">
+                                        <label className="label">Key Claim Name (Consumer Match)</label>
                                         <input
                                             type="text"
                                             className="input"
@@ -549,34 +783,33 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                         checked={jwtVerifyExp}
                                         onChange={e => setJwtVerifyExp(e.target.checked)}
                                     />
-                                    <span>Verify Expiration (exp claim)</span>
+                                    Verify Expiration Claim (exp)
                                 </label>
                             </div>
                         )}
 
                         {selectedPluginName === 'hmac-auth' && (
                             <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                    <div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                    <div className="form-group">
                                         <label className="label">Algorithm</label>
                                         <select
-                                            className="select"
+                                            className="input"
                                             value={hmacAlgo}
                                             onChange={e => setHmacAlgo(e.target.value)}
                                         >
                                             <option value="hmac-sha256">hmac-sha256</option>
+                                            <option value="hmac-sha384">hmac-sha384</option>
                                             <option value="hmac-sha512">hmac-sha512</option>
                                         </select>
                                     </div>
-                                    <div>
-                                        <label className="label">Clock Skew Tolerance (seconds)</label>
+                                    <div className="form-group">
+                                        <label className="label">Clock Skew (seconds)</label>
                                         <input
                                             type="number"
                                             className="input"
-                                            min={10}
-                                            max={3600}
                                             value={hmacClockSkew}
-                                            onChange={e => setHmacClockSkew(parseInt(e.target.value) || 300)}
+                                            onChange={e => setHmacClockSkew(Number(e.target.value))}
                                         />
                                     </div>
                                 </div>
@@ -608,7 +841,7 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                 type="submit"
                                 className="btn-header-new-route"
                             >
-                                Attach Plugin
+                                {isStaged ? 'Stage Plugin' : 'Attach Plugin'}
                             </button>
                         </div>
                     </form>
