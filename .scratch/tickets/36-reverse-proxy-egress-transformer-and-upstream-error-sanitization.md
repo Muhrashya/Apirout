@@ -4,11 +4,11 @@
 
 **Blocked by:** 35: Deep Gateway Responder & Hybrid Error Envelope Engine
 
-**Status:** ready-for-agent
+**Status:** completed
 
-- [ ] Implement `responder.ModifyProxyResponse(r *http.Request, res *http.Response, targetID string, cb *circuitbreaker.CircuitBreaker)` in `internal/gateway/responder/proxy.go`.
-- [ ] Implement `responder.HandleProxyError(w http.ResponseWriter, r *http.Request, serviceName string, proxyErr error, targetID string, cb *circuitbreaker.CircuitBreaker)`.
-- [ ] Strip hop-by-hop and internal backend server identification headers (`Server`, `X-Powered-By`) in `ModifyProxyResponse`.
-- [ ] Inject `Server-Timing: gateway;dur=..., upstream;dur=...` into successful and proxied responses.
-- [ ] Refactor `reverseProxyRequest` in `internal/gateway/executor/handler.go` to delegate `proxy.ErrorHandler` and `proxy.ModifyResponse` to the deep responder.
-- [ ] Unit tests verify header stripping, dual-timing calculation, and error sanitization.
+- [x] Implement `responder.ModifyProxyResponse(r *http.Request, res *http.Response, targetID string, cb *circuitbreaker.CircuitBreaker)` in `internal/gateway/responder/proxy.go`.
+- [x] Implement `responder.HandleProxyError(w http.ResponseWriter, r *http.Request, serviceName string, proxyErr error, targetID string, cb *circuitbreaker.CircuitBreaker)`.
+- [x] Strip hop-by-hop and internal backend server identification headers (`Server`, `X-Powered-By`) in `ModifyProxyResponse`.
+- [x] Inject `Server-Timing: gateway;dur=..., upstream;dur=...` into successful and proxied responses.
+- [x] Refactor `reverseProxyRequest` in `internal/gateway/executor/handler.go` to delegate `proxy.ErrorHandler` and `proxy.ModifyResponse` to the deep responder.
+- [x] Unit tests verify header stripping, dual-timing calculation, and error sanitization.

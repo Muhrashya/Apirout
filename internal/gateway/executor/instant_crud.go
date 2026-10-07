@@ -17,10 +17,10 @@ import (
 	"github.com/apirout/apirout/internal/core/crypto"
 	"github.com/apirout/apirout/internal/gateway/apiclientauth"
 	"github.com/apirout/apirout/internal/core/cache"
-	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/core/introspection"
 	"github.com/apirout/apirout/internal/core/sqldialect"
 	"github.com/apirout/apirout/internal/gateway/registry"
+	"github.com/apirout/apirout/internal/gateway/responder"
 )
 
 var identifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -116,17 +116,17 @@ func (h *InstantCRUDHandler) GetSchema(w http.ResponseWriter, r *http.Request) {
 
 	connStr, dbType, err := h.getTargetConn(r.Context(), connID)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, err.Error())
+		responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, err.Error())
 		return
 	}
 
 	schema, err := introspection.Introspect(r.Context(), dbType, connStr)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to introspect database: %v", err))
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, fmt.Sprintf("Failed to introspect database: %v", err))
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, schema)
+	responder.JSON(w, r, http.StatusOK, schema)
 }
 
 func parseInstantFilters(q url.Values) []sqldialect.FilterCondition {
@@ -178,19 +178,19 @@ func (h *InstantCRUDHandler) QueryTable(w http.ResponseWriter, r *http.Request) 
 	tableName := vars["table"]
 
 	if !identifierRegex.MatchString(tableName) {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid table name")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid table name")
 		return
 	}
 
 	connStr, dbType, err := h.getTargetConn(r.Context(), connID)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, err.Error())
+		responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, err.Error())
 		return
 	}
 
 	db, closeDB, err := h.getDB(connID, dbType, connStr)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to connect to database: "+err.Error())
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Failed to connect to database: "+err.Error())
 		return
 	}
 	defer closeDB()
@@ -224,7 +224,7 @@ func (h *InstantCRUDHandler) QueryTable(w http.ResponseWriter, r *http.Request) 
 
 	gen, err := sqldialect.GetGenerator(dbType)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported database dialect: "+dbType)
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Unsupported database dialect: "+dbType)
 		return
 	}
 
@@ -259,7 +259,7 @@ func (h *InstantCRUDHandler) QueryTable(w http.ResponseWriter, r *http.Request) 
 	}
 	countSQL, countArgs, err := gen.BuildSelect(countSpec)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to assemble count query: "+err.Error())
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Failed to assemble count query: "+err.Error())
 		return
 	}
 	var total int64
@@ -276,20 +276,20 @@ func (h *InstantCRUDHandler) QueryTable(w http.ResponseWriter, r *http.Request) 
 	}
 	querySQL, args, err := gen.BuildSelect(querySpec)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to assemble query: "+err.Error())
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Failed to assemble query: "+err.Error())
 		return
 	}
 
 	rows, err := db.QueryContext(r.Context(), querySQL, args...)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Query execution failed: %v", err))
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, fmt.Sprintf("Query execution failed: %v", err))
 		return
 	}
 	defer rows.Close()
 
 	colNames, err := rows.Columns()
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to inspect columns")
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Failed to inspect columns")
 		return
 	}
 
@@ -315,7 +315,7 @@ func (h *InstantCRUDHandler) QueryTable(w http.ResponseWriter, r *http.Request) 
 		results = append(results, record)
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{
+	responder.JSON(w, r, http.StatusOK, map[string]interface{}{
 		"data": results,
 		"meta": map[string]interface{}{
 			"total":    total,
@@ -334,19 +334,19 @@ func (h *InstantCRUDHandler) GetRow(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	if !identifierRegex.MatchString(tableName) {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid table name")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid table name")
 		return
 	}
 
 	connStr, dbType, err := h.getTargetConn(r.Context(), connID)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, err.Error())
+		responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, err.Error())
 		return
 	}
 
 	schema, err := introspection.Introspect(r.Context(), dbType, connStr)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to introspect table")
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Failed to introspect table")
 		return
 	}
 
@@ -360,14 +360,14 @@ func (h *InstantCRUDHandler) GetRow(w http.ResponseWriter, r *http.Request) {
 
 	db, closeDB, err := h.getDB(connID, dbType, connStr)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Database connection error: "+err.Error())
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Database connection error: "+err.Error())
 		return
 	}
 	defer closeDB()
 
 	gen, err := sqldialect.GetGenerator(dbType)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported database: "+dbType)
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Unsupported database: "+dbType)
 		return
 	}
 
@@ -379,20 +379,20 @@ func (h *InstantCRUDHandler) GetRow(w http.ResponseWriter, r *http.Request) {
 		Limit: 1,
 	})
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to assemble query: "+err.Error())
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Failed to assemble query: "+err.Error())
 		return
 	}
 
 	rows, err := db.QueryContext(r.Context(), querySQL, args...)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Query error: %v", err))
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, fmt.Sprintf("Query error: %v", err))
 		return
 	}
 	defer rows.Close()
 
 	colNames, _ := rows.Columns()
 	if !rows.Next() {
-		httputil.WriteJSONError(w, http.StatusNotFound, fmt.Sprintf("Record with %s=%s not found", pk, id))
+		responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, fmt.Sprintf("Record with %s=%s not found", pk, id))
 		return
 	}
 
@@ -413,7 +413,7 @@ func (h *InstantCRUDHandler) GetRow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{
+	responder.JSON(w, r, http.StatusOK, map[string]interface{}{
 		"data": record,
 	})
 }
@@ -425,24 +425,24 @@ func (h *InstantCRUDHandler) InsertRow(w http.ResponseWriter, r *http.Request) {
 	tableName := vars["table"]
 
 	if !identifierRegex.MatchString(tableName) {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid table name")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid table name")
 		return
 	}
 
 	connStr, dbType, err := h.getTargetConn(r.Context(), connID)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, err.Error())
+		responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, err.Error())
 		return
 	}
 
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid JSON payload")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid JSON payload")
 		return
 	}
 
 	if len(body) == 0 {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Empty payload")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Empty payload")
 		return
 	}
 
@@ -454,20 +454,20 @@ func (h *InstantCRUDHandler) InsertRow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(validValues) == 0 {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "No valid columns provided")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "No valid columns provided")
 		return
 	}
 
 	db, closeDB, err := h.getDB(connID, dbType, connStr)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Database connection error: "+err.Error())
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Database connection error: "+err.Error())
 		return
 	}
 	defer closeDB()
 
 	gen, err := sqldialect.GetGenerator(dbType)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported database: "+dbType)
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Unsupported database: "+dbType)
 		return
 	}
 
@@ -476,17 +476,17 @@ func (h *InstantCRUDHandler) InsertRow(w http.ResponseWriter, r *http.Request) {
 		Values: validValues,
 	})
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Insert failed: %v", err))
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, fmt.Sprintf("Insert failed: %v", err))
 		return
 	}
 
 	_, err = db.ExecContext(r.Context(), insertSQL, values...)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Insert failed: %v", err))
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, fmt.Sprintf("Insert failed: %v", err))
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusCreated, map[string]interface{}{
+	responder.JSON(w, r, http.StatusCreated, map[string]interface{}{
 		"status":  "created",
 		"message": "Row successfully inserted",
 		"data":    body,
@@ -501,19 +501,19 @@ func (h *InstantCRUDHandler) UpdateRow(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	if !identifierRegex.MatchString(tableName) {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid table name")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid table name")
 		return
 	}
 
 	connStr, dbType, err := h.getTargetConn(r.Context(), connID)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, err.Error())
+		responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, err.Error())
 		return
 	}
 
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid JSON body")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid JSON body")
 		return
 	}
 
@@ -536,20 +536,20 @@ func (h *InstantCRUDHandler) UpdateRow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(validValues) == 0 {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "No fields to update")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "No fields to update")
 		return
 	}
 
 	db, closeDB, err := h.getDB(connID, dbType, connStr)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Database connection error: "+err.Error())
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Database connection error: "+err.Error())
 		return
 	}
 	defer closeDB()
 
 	gen, err := sqldialect.GetGenerator(dbType)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported database: "+dbType)
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Unsupported database: "+dbType)
 		return
 	}
 
@@ -561,23 +561,23 @@ func (h *InstantCRUDHandler) UpdateRow(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Update failed: %v", err))
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, fmt.Sprintf("Update failed: %v", err))
 		return
 	}
 
 	res, err := db.ExecContext(r.Context(), updateSQL, values...)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Update failed: %v", err))
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, fmt.Sprintf("Update failed: %v", err))
 		return
 	}
 
 	rowsAff, _ := res.RowsAffected()
 	if rowsAff == 0 {
-		httputil.WriteJSONError(w, http.StatusNotFound, "Record not found")
+		responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, "Record not found")
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{
+	responder.JSON(w, r, http.StatusOK, map[string]interface{}{
 		"status":  "updated",
 		"message": "Row successfully updated",
 		"id":      id,
@@ -592,13 +592,13 @@ func (h *InstantCRUDHandler) DeleteRow(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	if !identifierRegex.MatchString(tableName) {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid table name")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid table name")
 		return
 	}
 
 	connStr, dbType, err := h.getTargetConn(r.Context(), connID)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, err.Error())
+		responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, err.Error())
 		return
 	}
 
@@ -615,14 +615,14 @@ func (h *InstantCRUDHandler) DeleteRow(w http.ResponseWriter, r *http.Request) {
 
 	db, closeDB, err := h.getDB(connID, dbType, connStr)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Database connection error: "+err.Error())
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Database connection error: "+err.Error())
 		return
 	}
 	defer closeDB()
 
 	gen, err := sqldialect.GetGenerator(dbType)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported database: "+dbType)
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Unsupported database: "+dbType)
 		return
 	}
 
@@ -633,23 +633,23 @@ func (h *InstantCRUDHandler) DeleteRow(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Delete failed: %v", err))
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, fmt.Sprintf("Delete failed: %v", err))
 		return
 	}
 
 	res, err := db.ExecContext(r.Context(), deleteSQL, args...)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Delete failed: %v", err))
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, fmt.Sprintf("Delete failed: %v", err))
 		return
 	}
 
 	rowsAff, _ := res.RowsAffected()
 	if rowsAff == 0 {
-		httputil.WriteJSONError(w, http.StatusNotFound, "Record not found")
+		responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, "Record not found")
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{
+	responder.JSON(w, r, http.StatusOK, map[string]interface{}{
 		"status":  "deleted",
 		"message": "Record successfully deleted",
 		"id":      id,
@@ -736,6 +736,6 @@ func (h *InstantCRUDHandler) ExecuteTableCRUD(w http.ResponseWriter, r *http.Req
 	case http.MethodDelete:
 		h.DeleteRow(w, r)
 	default:
-		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed for instant CRUD")
+		responder.Error(w, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, "Method not allowed for instant CRUD")
 	}
 }

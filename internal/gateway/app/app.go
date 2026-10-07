@@ -19,6 +19,7 @@ import (
 	"github.com/apirout/apirout/internal/gateway/executor"
 	"github.com/apirout/apirout/internal/gateway/middleware"
 	"github.com/apirout/apirout/internal/gateway/registry"
+	"github.com/apirout/apirout/internal/gateway/responder"
 )
 
 const shutdownGracePeriod = 15 * time.Second
@@ -95,7 +96,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{
+		responder.JSON(w, r, http.StatusOK, map[string]string{
 			"status": "ok",
 			"plane":  "data-plane",
 			"engine": "apirout",
@@ -109,7 +110,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	instantRouter.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if err := instantHandler.AuthenticateRequest(r); err != nil {
-				httputil.WriteJSONError(w, http.StatusUnauthorized, err.Error())
+				responder.Error(w, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, err.Error())
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -141,11 +142,11 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	corsOptions := cors.Options{
 		AllowedOrigins:   corsOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With", "X-API-Key", "X-Admin-Secret", "X-Apirout-Admin-Secret"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With", "X-API-Key", "X-Admin-Secret", "X-Apirout-Admin-Secret", "X-Request-ID", "X-Correlation-ID"},
 		AllowCredentials: allowCredentials,
 	}
 	corsMiddleware := cors.New(corsOptions)
-	app.proxyHandler = middleware.MetricsTracker(corsMiddleware.Handler(r))
+	app.proxyHandler = responder.Middleware(middleware.MetricsTracker(corsMiddleware.Handler(r)))
 
 	// Status & Metrics Router (Port 8100)
 	statusR := mux.NewRouter()

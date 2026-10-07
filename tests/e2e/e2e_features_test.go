@@ -71,35 +71,8 @@ func extractID(res map[string]any) string {
 // Helper to make gateway requests
 func gatewayRequest(t *testing.T, method, path string, headers map[string]string, body any) (int, []byte) {
 	t.Helper()
-	var bodyReader io.Reader
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			t.Fatalf("failed to marshal request body: %v", err)
-		}
-		bodyReader = bytes.NewReader(data)
-	}
-
-	req, err := http.NewRequest(method, gatewayURL+path, bodyReader)
-	if err != nil {
-		t.Fatalf("failed to create request: %v", err)
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("gateway request %s %s failed: %v", method, path, err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, respBody
+	statusCode, _, respBody := gatewayRequestWithHeaders(t, method, path, headers, body)
+	return statusCode, respBody
 }
 
 // Helper to make authenticated admin requests with custom content type and raw bytes
@@ -160,6 +133,15 @@ func gatewayRequestWithHeaders(t *testing.T, method, path string, headers map[st
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+
+	// Automated verification on highest HTTP seam: every gateway response MUST carry X-Request-ID and Server-Timing
+	if reqID := resp.Header.Get("X-Request-ID"); reqID == "" {
+		t.Errorf("gateway response missing X-Request-ID header for %s %s", method, path)
+	}
+	if st := resp.Header.Get("Server-Timing"); !strings.Contains(st, "gateway;dur=") {
+		t.Errorf("gateway response missing Server-Timing header for %s %s: got %q", method, path, st)
+	}
+
 	return resp.StatusCode, resp.Header, respBody
 }
 
@@ -176,13 +158,27 @@ func TestE2E_HealthAndTelemetry(t *testing.T) {
 	})
 
 	t.Run("Gateway Health Check", func(t *testing.T) {
-		resp, err := http.Get(gatewayURL + "/health")
-		if err != nil {
-			t.Fatalf("gateway healthcheck failed: %v", err)
+		statusCode, headers, _ := gatewayRequestWithHeaders(t, "GET", "/health", nil, nil)
+		if statusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", statusCode)
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected 200, got %d", resp.StatusCode)
+		if headers.Get("X-Request-ID") == "" {
+			t.Errorf("expected X-Request-ID header on /health")
+		}
+		if !strings.Contains(headers.Get("Server-Timing"), "gateway;dur=") {
+			t.Errorf("expected Server-Timing header on /health, got: %s", headers.Get("Server-Timing"))
+		}
+	})
+
+	t.Run("Gateway Correlation ID Propagation", func(t *testing.T) {
+		customID := "custom-correlation-id-" + fmt.Sprintf("%d", time.Now().UnixNano())
+		headers := map[string]string{"X-Request-ID": customID}
+		statusCode, respHeaders, _ := gatewayRequestWithHeaders(t, "GET", "/health", headers, nil)
+		if statusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", statusCode)
+		}
+		if got := respHeaders.Get("X-Request-ID"); got != customID {
+			t.Errorf("expected preserved X-Request-ID %s, got %s", customID, got)
 		}
 	})
 
@@ -538,9 +534,20 @@ func TestE2E_InstantCRUDAndSQLDialect(t *testing.T) {
 		}
 
 		// 5. Verify deleted row returns 404
-		code, _ = gatewayRequest(t, "GET", fmt.Sprintf("/api/v1/instant/%s/system_settings/%s", connID, testSettingKey), authHeaders, nil)
+		code, body = gatewayRequest(t, "GET", fmt.Sprintf("/api/v1/instant/%s/system_settings/%s", connID, testSettingKey), authHeaders, nil)
 		if code != http.StatusNotFound {
 			t.Errorf("expected 404 after delete, got %d", code)
+		}
+		var errResp map[string]any
+		if err := json.Unmarshal(body, &errResp); err == nil {
+			if errResp["code"] != "RECORD_NOT_FOUND" {
+				t.Errorf("expected code RECORD_NOT_FOUND, got %v", errResp["code"])
+			}
+			if errResp["status"] != false {
+				t.Errorf("expected status false in hybrid envelope, got %v", errResp["status"])
+			}
+		} else {
+			t.Errorf("failed to unmarshal 404 response: %v", err)
 		}
 	})
 
@@ -788,7 +795,7 @@ func TestE2E_RadixRouterAndMethodNotAllowed(t *testing.T) {
 	// Subtest 2: Method Not Allowed (405) with Allow header
 	t.Run("HTTP 405 Method Not Allowed", func(t *testing.T) {
 		for _, method := range []string{"POST", "DELETE", "PUT"} {
-			statusCode, headers, _ := gatewayRequestWithHeaders(t, method, routePath, nil, nil)
+			statusCode, headers, body := gatewayRequestWithHeaders(t, method, routePath, nil, nil)
 			if statusCode != http.StatusMethodNotAllowed {
 				t.Errorf("expected 405 for %s %s, got %d", method, routePath, statusCode)
 			}
@@ -796,14 +803,42 @@ func TestE2E_RadixRouterAndMethodNotAllowed(t *testing.T) {
 			if !strings.Contains(allowHeader, "GET") {
 				t.Errorf("expected Allow header containing GET, got: %s", allowHeader)
 			}
+			var errResp map[string]any
+			if err := json.Unmarshal(body, &errResp); err == nil {
+				if errResp["code"] != "METHOD_NOT_ALLOWED" {
+					t.Errorf("expected code METHOD_NOT_ALLOWED, got %v", errResp["code"])
+				}
+				if errResp["request_id"] == nil || errResp["request_id"] == "" {
+					t.Errorf("expected request_id in error body, got %v", errResp["request_id"])
+				}
+				if errResp["status"] != false {
+					t.Errorf("expected status false in hybrid envelope, got %v", errResp["status"])
+				}
+			} else {
+				t.Errorf("failed to unmarshal 405 response: %v", err)
+			}
 		}
 	})
 
 	// Subtest 3: HTTP 404 for Non-Existent Route
 	t.Run("HTTP 404 Route Not Found", func(t *testing.T) {
-		statusCode, _, _ := gatewayRequestWithHeaders(t, "GET", "/api/ghost-route-not-here-99", nil, nil)
+		statusCode, _, body := gatewayRequestWithHeaders(t, "GET", "/api/ghost-route-not-here-99", nil, nil)
 		if statusCode != http.StatusNotFound {
 			t.Errorf("expected 404 for non-existent route, got %d", statusCode)
+		}
+		var errResp map[string]any
+		if err := json.Unmarshal(body, &errResp); err == nil {
+			if errResp["code"] != "ROUTE_NOT_FOUND" {
+				t.Errorf("expected code ROUTE_NOT_FOUND, got %v", errResp["code"])
+			}
+			if errResp["request_id"] == nil || errResp["request_id"] == "" {
+				t.Errorf("expected request_id in error body, got %v", errResp["request_id"])
+			}
+			if errResp["status"] != false {
+				t.Errorf("expected status false in hybrid envelope, got %v", errResp["status"])
+			}
+		} else {
+			t.Errorf("failed to unmarshal 404 response: %v", err)
 		}
 	})
 }
@@ -898,6 +933,17 @@ func TestE2E_PassiveCircuitBreakerAndFailover(t *testing.T) {
 		}
 		if !strings.Contains(string(body), "no healthy upstream targets available") {
 			t.Errorf("expected 'no healthy upstream targets available' in error body, got: %s", string(body))
+		}
+		var errResp map[string]any
+		if err := json.Unmarshal(body, &errResp); err == nil {
+			if errResp["code"] != "NO_HEALTHY_TARGETS" {
+				t.Errorf("expected code NO_HEALTHY_TARGETS, got %v", errResp["code"])
+			}
+			if errResp["status"] != false {
+				t.Errorf("expected status false in hybrid envelope, got %v", errResp["status"])
+			}
+		} else {
+			t.Errorf("failed to unmarshal 503 response: %v", err)
 		}
 	})
 }
@@ -996,18 +1042,40 @@ func TestE2E_ConsumerAuthAndRateLimiting(t *testing.T) {
 
 	// Missing Authentication -> 401 Unauthorized
 	t.Run("Missing Authentication Rejected", func(t *testing.T) {
-		statusCode, _, _ := gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
+		statusCode, _, body := gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
 		if statusCode != http.StatusUnauthorized {
 			t.Errorf("expected 401 Unauthorized without auth, got %d", statusCode)
+		}
+		var errResp map[string]any
+		if err := json.Unmarshal(body, &errResp); err == nil {
+			if errResp["code"] != "UNAUTHORIZED" {
+				t.Errorf("expected code UNAUTHORIZED, got %v", errResp["code"])
+			}
+			if errResp["status"] != false {
+				t.Errorf("expected status false in hybrid envelope, got %v", errResp["status"])
+			}
+		} else {
+			t.Errorf("failed to unmarshal 401 response: %v", err)
 		}
 	})
 
 	// Invalid API Key -> 401 Unauthorized
 	t.Run("Invalid API Key Rejected", func(t *testing.T) {
 		badHeaders := map[string]string{"X-API-Key": "ak_invalid_key_99999"}
-		statusCode, _, _ := gatewayRequestWithHeaders(t, "GET", routePath, badHeaders, nil)
+		statusCode, _, body := gatewayRequestWithHeaders(t, "GET", routePath, badHeaders, nil)
 		if statusCode != http.StatusUnauthorized {
 			t.Errorf("expected 401 Unauthorized with invalid key, got %d", statusCode)
+		}
+		var errResp map[string]any
+		if err := json.Unmarshal(body, &errResp); err == nil {
+			if errResp["code"] != "INVALID_API_KEY" {
+				t.Errorf("expected code INVALID_API_KEY, got %v", errResp["code"])
+			}
+			if errResp["status"] != false {
+				t.Errorf("expected status false in hybrid envelope, got %v", errResp["status"])
+			}
+		} else {
+			t.Errorf("failed to unmarshal 401 response: %v", err)
 		}
 	})
 
@@ -1025,12 +1093,23 @@ func TestE2E_ConsumerAuthAndRateLimiting(t *testing.T) {
 		authHeaders := map[string]string{"X-API-Key": apiKey}
 		got429 := false
 		for i := 0; i < 6; i++ {
-			statusCode, headers, _ := gatewayRequestWithHeaders(t, "GET", routePath, authHeaders, nil)
+			statusCode, headers, body := gatewayRequestWithHeaders(t, "GET", routePath, authHeaders, nil)
 			if statusCode == http.StatusTooManyRequests {
 				got429 = true
 				retryAfter := headers.Get("Retry-After")
 				if retryAfter == "" {
 					t.Errorf("expected Retry-After header on 429 response")
+				}
+				var errResp map[string]any
+				if err := json.Unmarshal(body, &errResp); err == nil {
+					if errResp["code"] != "RATE_LIMIT_EXCEEDED" {
+						t.Errorf("expected code RATE_LIMIT_EXCEEDED, got %v", errResp["code"])
+					}
+					if errResp["status"] != false {
+						t.Errorf("expected status false in hybrid envelope, got %v", errResp["status"])
+					}
+				} else {
+					t.Errorf("failed to unmarshal 429 response: %v", err)
 				}
 				break
 			}

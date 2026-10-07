@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/apirout/apirout/internal/core/httputil"
+	"github.com/apirout/apirout/internal/gateway/responder"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -39,34 +39,34 @@ type LoginResponse struct {
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid request body")
 		return
 	}
 
 	if req.Username == "" || req.Password == "" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "username and password are required")
+		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "username and password are required")
 		return
 	}
 
 	client, err := h.service.GetReader().GetAPIClientByUsername(req.Username)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Database error")
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Database error")
 		return
 	}
 
 	if client == nil {
-		httputil.WriteJSONError(w, http.StatusUnauthorized, "Invalid credentials")
+		responder.Error(w, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, "Invalid credentials")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(client.PasswordHash), []byte(req.Password)); err != nil {
-		httputil.WriteJSONError(w, http.StatusUnauthorized, "Invalid credentials")
+		responder.Error(w, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, "Invalid credentials")
 		return
 	}
 
 	token, expiresAt, err := h.service.GenerateToken(client)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to generate token")
+		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Failed to generate token")
 		return
 	}
 
@@ -76,5 +76,5 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	resp.Data.Token = token
 	resp.Data.Expired = expiresAt.Format(time.RFC3339)
 
-	httputil.WriteJSON(w, http.StatusOK, resp)
+	responder.JSON(w, r, http.StatusOK, resp)
 }

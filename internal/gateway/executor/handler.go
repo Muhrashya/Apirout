@@ -21,6 +21,7 @@ import (
 	"github.com/apirout/apirout/internal/gateway/apiclientauth"
 	"github.com/apirout/apirout/internal/gateway/auth"
 	"github.com/apirout/apirout/internal/gateway/registry"
+	"github.com/apirout/apirout/internal/gateway/responder"
 	"github.com/google/uuid"
 )
 
@@ -400,7 +401,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(path, "/api/") {
 		statusCode = http.StatusNotFound
 		success = false
-		httputil.WriteJSONError(rec, http.StatusNotFound, "Not found")
+		responder.Error(rec, r, http.StatusNotFound, responder.ErrCodeRouteNotFound, "Not found")
 		return
 	}
 
@@ -418,10 +419,11 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 			success = false
 			errStr := "Method not allowed"
 			errorMsg = &errStr
+			extra := make(map[string]string)
 			if len(res.AllowedMethods) > 0 {
-				rec.Header().Set("Allow", strings.Join(res.AllowedMethods, ", "))
+				extra["Allow"] = strings.Join(res.AllowedMethods, ", ")
 			}
-			httputil.WriteJSONError(rec, http.StatusMethodNotAllowed, errStr)
+			responder.Error(rec, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, errStr, extra)
 			return
 		}
 	}
@@ -434,7 +436,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 			success = false
 			errStr := "Database error"
 			errorMsg = &errStr
-			httputil.WriteJSONError(rec, http.StatusInternalServerError, errStr)
+			responder.Error(rec, r, http.StatusInternalServerError, responder.ErrCodeInternalError, errStr)
 			return
 		}
 		endpoint = ep
@@ -445,7 +447,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 		success = false
 		errStr := "Endpoint not found"
 		errorMsg = &errStr
-		httputil.WriteJSONError(rec, http.StatusNotFound, errStr)
+		responder.Error(rec, r, http.StatusNotFound, responder.ErrCodeRouteNotFound, errStr)
 		return
 	}
 
@@ -460,7 +462,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 		success = false
 		errStr := "Endpoint disabled"
 		errorMsg = &errStr
-		httputil.WriteJSONError(rec, http.StatusNotFound, errStr)
+		responder.Error(rec, r, http.StatusNotFound, responder.ErrCodeRouteNotFound, errStr)
 		return
 	}
 
@@ -470,8 +472,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 		success = false
 		errStr := "Method not allowed"
 		errorMsg = &errStr
-		rec.Header().Set("Allow", endpoint.Method)
-		httputil.WriteJSONError(rec, http.StatusMethodNotAllowed, errStr)
+		responder.Error(rec, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, errStr, map[string]string{"Allow": endpoint.Method})
 		return
 	}
 
@@ -489,7 +490,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 		success = false
 		errStr := "Domain not authorized to access this endpoint"
 		errorMsg = &errStr
-		httputil.WriteJSONError(rec, http.StatusForbidden, errStr)
+		responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, errStr)
 		return
 	}
 
@@ -499,7 +500,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 		success = false
 		errStr := "Client IP address forbidden for this endpoint"
 		errorMsg = &errStr
-		httputil.WriteJSONError(rec, http.StatusForbidden, errStr)
+		responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, errStr)
 		return
 	}
 
@@ -519,7 +520,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 				success = false
 				errStr := err.Error()
 				errorMsg = &errStr
-				httputil.WriteJSONError(rec, http.StatusUnauthorized, errStr)
+				responder.Error(rec, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, errStr)
 				return
 			}
 			if authResult != nil {
@@ -542,7 +543,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 					success = false
 					errStr := "Invalid API key: " + err.Error()
 					errorMsg = &errStr
-					httputil.WriteJSONError(rec, http.StatusUnauthorized, errStr)
+					responder.Error(rec, r, http.StatusUnauthorized, responder.ErrCodeInvalidKey, errStr)
 					return
 				}
 				consumerID = consumer.ID
@@ -558,7 +559,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 					success = false
 					errStr := "Invalid or expired token"
 					errorMsg = &errStr
-					httputil.WriteJSONError(rec, http.StatusUnauthorized, errStr)
+					responder.Error(rec, r, http.StatusUnauthorized, responder.ErrCodeExpiredToken, errStr)
 					return
 				}
 				consumerID = claims.APIClientID
@@ -569,7 +570,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 				success = false
 				errStr := "Authentication required (provide X-API-Key or Authorization Bearer token)"
 				errorMsg = &errStr
-				httputil.WriteJSONError(rec, http.StatusUnauthorized, errStr)
+				responder.Error(rec, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, errStr)
 				return
 			}
 		}
@@ -581,7 +582,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 			success = false
 			errStr := "Access to this endpoint is forbidden for consumer"
 			errorMsg = &errStr
-			httputil.WriteJSONError(rec, http.StatusForbidden, errStr)
+			responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, errStr)
 			return
 		}
 
@@ -605,8 +606,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 			success = false
 			errStr := "Route rate limit exceeded"
 			errorMsg = &errStr
-			rec.Header().Set("Retry-After", "60")
-			httputil.WriteJSONError(rec, http.StatusTooManyRequests, errStr)
+			responder.Error(rec, r, http.StatusTooManyRequests, responder.ErrCodeRateLimitExceeded, errStr, map[string]string{"Retry-After": "60"})
 			return
 		}
 	}
@@ -621,8 +621,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 				success = false
 				errStr := "Consumer group rate limit exceeded"
 				errorMsg = &errStr
-				rec.Header().Set("Retry-After", "60")
-				httputil.WriteJSONError(rec, http.StatusTooManyRequests, errStr)
+				responder.Error(rec, r, http.StatusTooManyRequests, responder.ErrCodeRateLimitExceeded, errStr, map[string]string{"Retry-After": "60"})
 				return
 			}
 		}
@@ -652,7 +651,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 					success = false
 					errStr := "no healthy upstream targets available"
 					errorMsg = &errStr
-					httputil.WriteJSONError(rec, http.StatusServiceUnavailable, errStr)
+					responder.Error(rec, r, http.StatusServiceUnavailable, responder.ErrCodeNoHealthyTargets, errStr)
 					return
 				}
 
@@ -702,10 +701,10 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 						success = false
 						errStr := err.Error()
 						errorMsg = &errStr
-						httputil.WriteJSONError(rec, http.StatusInternalServerError, errStr)
+						responder.Error(rec, r, http.StatusInternalServerError, responder.ErrCodeInternalError, errStr)
 						return
 					}
-					httputil.WriteJSON(rec, http.StatusOK, result)
+					responder.JSON(rec, r, http.StatusOK, result)
 					return
 				}
 
@@ -743,10 +742,10 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 			success = false
 			errStr := err.Error()
 			errorMsg = &errStr
-			httputil.WriteJSONError(rec, http.StatusInternalServerError, errStr)
+			responder.Error(rec, r, http.StatusInternalServerError, responder.ErrCodeInternalError, errStr)
 			return
 		}
-		httputil.WriteJSON(rec, http.StatusOK, result)
+		responder.JSON(rec, r, http.StatusOK, result)
 		return
 	}
 
@@ -755,7 +754,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 	success = false
 	errStr := "Route is not configured with an active Service backend, Database connection, or SQL query"
 	errorMsg = &errStr
-	httputil.WriteJSONError(rec, http.StatusBadRequest, errStr)
+	responder.Error(rec, r, http.StatusBadRequest, responder.ErrCodeBadRequest, errStr)
 }
 
 // getTransport retrieves or creates an HTTP transport with connection pooling and configurable timeouts for the backend service
@@ -869,24 +868,11 @@ func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, en
 
 	upStart := time.Now()
 	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, proxyErr error) {
-		if upDuration != nil {
-			*upDuration = int(time.Since(upStart).Milliseconds())
-		}
-		if h.circuitBreaker != nil && targetID != "" {
-			h.circuitBreaker.RecordFailure(targetID)
-		}
-		httputil.WriteJSONError(rw, http.StatusBadGateway, fmt.Sprintf("Backend service %s unreachable: %v", service.Name, proxyErr))
+		responder.HandleProxyError(rw, req, service.Name, proxyErr, targetID, h.circuitBreaker, upDuration, upStart)
 	}
 
 	proxy.ModifyResponse = func(res *http.Response) error {
-		if h.circuitBreaker != nil && targetID != "" {
-			if res.StatusCode >= 500 {
-				h.circuitBreaker.RecordFailure(targetID)
-			} else {
-				h.circuitBreaker.RecordSuccess(targetID)
-			}
-		}
-		return nil
+		return responder.ModifyProxyResponse(r, res, targetID, h.circuitBreaker, upDuration, upStart)
 	}
 
 	proxy.ServeHTTP(w, r)
