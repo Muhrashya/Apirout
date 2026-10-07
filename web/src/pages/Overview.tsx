@@ -4,6 +4,7 @@ import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { apiClient } from '../api/apiClient';
+import { gatewayApi, GatewayService } from '../api/gatewayApi';
 import {
     IconSpeedometer, IconClock, IconAlertTriangle, IconSliders,
     IconRefresh, IconPlus, IconServices, IconRoutes, IconDotsHorizontal,
@@ -43,18 +44,10 @@ interface EndpointItem {
     description?: string;
 }
 
-interface ConnectionItem {
-    id: string;
-    name: string;
-    type: string;
-    host: string;
-    database: string;
-}
-
 export default function Overview() {
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [routes, setRoutes] = useState<EndpointItem[]>([]);
-    const [connections, setConnections] = useState<ConnectionItem[]>([]);
+    const [services, setServices] = useState<GatewayService[]>([]);
     const [timeRange, setTimeRange] = useState<'1h' | '24h' | '7d' | '30d'>('24h');
     const [isLoading, setIsLoading] = useState(false);
     const navigate = useNavigate();
@@ -82,12 +75,10 @@ export default function Overview() {
         }
 
         try {
-            const connList = await apiClient.get<ConnectionItem[]>('/connections');
-            if (Array.isArray(connList)) {
-                setConnections(connList);
-            }
+            const servicesRes = await gatewayApi.getServices().catch(() => ({ data: [] }));
+            setServices(servicesRes.data || []);
         } catch {
-            setConnections([]);
+            setServices([]);
         }
 
         setIsLoading(false);
@@ -273,19 +264,19 @@ export default function Overview() {
                     <div className="card-top-row">
                         <div className="card-title-group">
                             <h2 className="card-heading">Service health</h2>
-                            <p className="card-subheading">{connections.length} services monitored</p>
+                            <p className="card-subheading">{services.length} services monitored</p>
                         </div>
                         <button className="table-more-btn" title="Options">
                             <IconDotsHorizontal width={18} height={18} />
                         </button>
                     </div>
 
-                    {connections.length > 0 ? (
+                    {services.length > 0 ? (
                         <div className="service-health-list">
-                            {connections.map((c, i) => (
-                                <div className="service-health-item" key={c.id || i}>
+                            {services.map((s, i) => (
+                                <div className="service-health-item" key={s.id || i}>
                                     <div className="service-item-top">
-                                        <span className="service-item-name">{c.name} ({c.type})</span>
+                                        <span className="service-item-name">{s.name} ({s.protocol || 'http'})</span>
                                         <span className="service-item-latency">&lt; 1 ms</span>
                                     </div>
                                     <div className="service-bar-track">
@@ -298,15 +289,15 @@ export default function Overview() {
                         <div className="empty-state-card-box">
                             <span className="empty-icon-sub"><IconServices width={36} height={36} /></span>
                             <p className="empty-title">No upstream services</p>
-                            <p className="empty-desc">Connect a database upstream to generate Instant APIs and monitor health.</p>
-                            <Link to="/instant-api" className="btn btn-secondary btn-sm" style={{ marginTop: '8px' }}>
+                            <p className="empty-desc">Connect an upstream backend or database to route APIs and monitor health.</p>
+                            <Link to="/services/new" className="btn btn-secondary btn-sm" style={{ marginTop: '8px' }}>
                                 + Connect Service
                             </Link>
                         </div>
                     )}
 
                     <div className="card-bottom-link-row">
-                        <Link to="/instant-api" className="card-link-action">
+                        <Link to="/services" className="card-link-action">
                             View all services &gt;
                         </Link>
                     </div>

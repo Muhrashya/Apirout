@@ -55,6 +55,23 @@ export default function Profile() {
         return (email || 'A').substring(0, 2).toUpperCase();
     };
 
+    const getRoleBadgeStyle = (role: string) => {
+        switch (role) {
+            case 'SUPER_ADMIN':
+                return { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca', label: 'Super Admin' };
+            case 'ADMIN':
+                return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', label: 'Admin' };
+            case 'DEVELOPER':
+                return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', label: 'Developer' };
+            case 'MAINTAINER':
+                return { bg: '#fffbeb', color: '#b45309', border: '#fde68a', label: 'Maintainer' };
+            default:
+                return { bg: '#f8fafc', color: '#475569', border: '#e2e8f0', label: role };
+        }
+    };
+
+    const roleBadge = getRoleBadgeStyle(user?.role || '');
+
     return (
         <div className="overview-page-wrapper">
             {/* Breadcrumb */}
@@ -105,22 +122,25 @@ export default function Profile() {
                             </h2>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
                                 <span style={{
-                                    fontSize: '11px',
+                                    display: 'inline-block',
+                                    fontSize: '11.5px',
                                     fontWeight: 700,
-                                    padding: '2px 8px',
-                                    borderRadius: '12px',
-                                    backgroundColor: user?.role === 'SUPER_ADMIN' ? '#eff6ff' : '#f1f5f9',
-                                    color: user?.role === 'SUPER_ADMIN' ? '#2563eb' : '#475569'
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    backgroundColor: roleBadge.bg,
+                                    color: roleBadge.color,
+                                    border: `1px solid ${roleBadge.border}`
                                 }}>
-                                    {user?.role}
+                                    {roleBadge.label}
                                 </span>
                                 <span style={{
-                                    fontSize: '11px',
+                                    fontSize: '11.5px',
                                     fontWeight: 600,
-                                    padding: '2px 8px',
-                                    borderRadius: '12px',
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
                                     backgroundColor: '#dcfce7',
-                                    color: '#16a34a'
+                                    color: '#16a34a',
+                                    border: '1px solid #bbf7d0'
                                 }}>
                                     Active Session
                                 </span>

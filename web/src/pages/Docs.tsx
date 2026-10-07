@@ -70,7 +70,7 @@ export default function Docs() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'api-builder-collection.json';
+            a.download = 'apirout-collection.json';
             a.click();
             URL.revokeObjectURL(url);
             toast.success('Postman collection downloaded');
