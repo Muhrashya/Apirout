@@ -41,7 +41,6 @@ func Error(w http.ResponseWriter, r *http.Request, status int, code ErrorCode, m
 	envelope := ErrorEnvelope{
 		Status:    false,
 		Message:   message,
-		Error:     message,
 		Code:      code,
 		RequestID: reqID,
 		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),

@@ -58,9 +58,6 @@ func TestResponder_Error(t *testing.T) {
 		if envelope.Message != "Method not allowed" {
 			t.Errorf("expected message 'Method not allowed', got %q", envelope.Message)
 		}
-		if envelope.Error != "Method not allowed" {
-			t.Errorf("expected error 'Method not allowed', got %q", envelope.Error)
-		}
 
 		// Structured fields
 		if envelope.Code != responder.ErrCodeMethodNotAllowed {

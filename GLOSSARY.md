@@ -72,5 +72,8 @@ The centralized database connection lifecycle module in `internal/core/` that en
 An edge-local upstream resilience mechanism within the Data Plane that temporarily isolates failing targets upon reaching consecutive error thresholds and probes recovery in a half-open state, complementing active control-plane health checking.
 
 ### Gateway Responder
-A deep outbound edge module operating at the Data Plane response seam that encapsulates correlation tracking (X-Request-ID), latency telemetry (Server-Timing), production error sanitization, and structured hybrid error envelope formatting across all proxied and generated API routes.
+A deep outbound edge module operating at the Data Plane response seam that encapsulates correlation tracking (X-Request-ID), latency telemetry (Server-Timing), production error sanitization, and structured normalized error envelope formatting across all proxied and generated API routes.
+
+### Normalized Error Envelope
+The canonical, machine-readable JSON error representation emitted by the Gateway Responder containing `status`, `message`, `code`, `request_id`, and `timestamp`, eliminating redundant field duplication while providing deterministic client branching and end-to-end distributed tracing.
 

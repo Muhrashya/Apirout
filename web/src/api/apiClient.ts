@@ -32,7 +32,7 @@ async function request<T>(
         throw new Error(`Network error: ${err instanceof Error ? err.message : 'Failed to connect'}`);
     }
 
-    let json: { error?: string } & T;
+    let json: { error?: string; message?: string } & T;
     try {
         json = await response.json();
     } catch {
@@ -56,7 +56,7 @@ async function request<T>(
                 window.location.href = '/login';
             }
         }
-        throw new Error(json.error || `Request failed: ${response.status}`);
+        throw new Error(json.message || json.error || `Request failed: ${response.status}`);
     }
 
     return json;
