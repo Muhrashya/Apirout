@@ -470,6 +470,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 		success = false
 		errStr := "Method not allowed"
 		errorMsg = &errStr
+		rec.Header().Set("Allow", endpoint.Method)
 		httputil.WriteJSONError(rec, http.StatusMethodNotAllowed, errStr)
 		return
 	}
@@ -824,13 +825,22 @@ func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, en
 		subPath := r.URL.Path
 		if endpoint.StripPath {
 			subPath = strings.TrimPrefix(subPath, endpoint.Path)
-			if !strings.HasPrefix(subPath, "/") {
+			if subPath != "" && !strings.HasPrefix(subPath, "/") {
 				subPath = "/" + subPath
 			}
 		}
 
 		basePath := strings.TrimSuffix(service.Path, "/")
-		req.URL.Path = basePath + subPath
+		if basePath != "" && (subPath == "" || subPath == "/") {
+			req.URL.Path = basePath
+		} else if basePath != "" {
+			req.URL.Path = basePath + subPath
+		} else {
+			if subPath == "" {
+				subPath = "/"
+			}
+			req.URL.Path = subPath
+		}
 		req.URL.RawQuery = r.URL.RawQuery
 
 		// Host header

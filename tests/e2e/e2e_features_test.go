@@ -54,6 +54,20 @@ func adminRequest(t *testing.T, method, path string, body any) (int, map[string]
 	return resp.StatusCode, result
 }
 
+// extractID extracts an ID string from response map (checks root "id" then data.id)
+func extractID(res map[string]any) string {
+	if res == nil {
+		return ""
+	}
+	if id, ok := res["id"]; ok && id != nil && fmt.Sprintf("%v", id) != "<nil>" {
+		return fmt.Sprintf("%v", id)
+	}
+	if data, ok := res["data"].(map[string]any); ok && data["id"] != nil && fmt.Sprintf("%v", data["id"]) != "<nil>" {
+		return fmt.Sprintf("%v", data["id"])
+	}
+	return ""
+}
+
 // Helper to make gateway requests
 func gatewayRequest(t *testing.T, method, path string, headers map[string]string, body any) (int, []byte) {
 	t.Helper()
@@ -86,6 +100,67 @@ func gatewayRequest(t *testing.T, method, path string, headers map[string]string
 
 	respBody, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, respBody
+}
+
+// Helper to make authenticated admin requests with custom content type and raw bytes
+func adminRequestRaw(t *testing.T, method, path, contentType string, body []byte) (int, map[string]any, []byte) {
+	t.Helper()
+	req, err := http.NewRequest(method, adminURL+path, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	req.Header.Set("X-Apirout-Admin-Secret", adminSecret)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("admin raw request %s %s failed: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result map[string]any
+	if len(respBody) > 0 && respBody[0] == '{' {
+		_ = json.Unmarshal(respBody, &result)
+	}
+	return resp.StatusCode, result, respBody
+}
+
+// Helper to make gateway requests with response headers
+func gatewayRequestWithHeaders(t *testing.T, method, path string, headers map[string]string, body any) (int, http.Header, []byte) {
+	t.Helper()
+	var bodyReader io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("failed to marshal request body: %v", err)
+		}
+		bodyReader = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequest(method, gatewayURL+path, bodyReader)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("gateway request %s %s failed: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, resp.Header, respBody
 }
 
 func TestE2E_HealthAndTelemetry(t *testing.T) {
@@ -524,4 +599,460 @@ func TestE2E_InstantCRUDAndSQLDialect(t *testing.T) {
 			t.Fatalf("expected 409 Conflict when super admin already exists, got %d", postResp.StatusCode)
 		}
 	})
+}
+
+func TestE2E_DeclarativeStateEngineGitOps(t *testing.T) {
+	// Step 1: Fault Injection - Atomic Rollback on Missing Dependency
+	t.Run("Atomic Rollback on Missing Dependency", func(t *testing.T) {
+		invalidYAML := `
+version: "api.apirout.io/v1"
+services:
+  - name: "orphan-service-e2e"
+    upstream_name: "phantom-upstream-nonexistent"
+`
+		status, resMap, rawBody := adminRequestRaw(t, "POST", "/api/v1/metadata/import", "application/x-yaml", []byte(invalidYAML))
+		if status != http.StatusUnprocessableEntity {
+			t.Fatalf("expected 422 Unprocessable Entity, got %d: %s", status, string(rawBody))
+		}
+		if resMap["entity"] != "Service" || resMap["identifier"] != "orphan-service-e2e" {
+			t.Errorf("expected structured error on Service orphan-service-e2e, got: %+v", resMap)
+		}
+
+		// Verify zero orphaned records: Service must NOT exist in datastore
+		code, getRes := adminRequest(t, "GET", "/api/v1/services", nil)
+		if code == http.StatusOK {
+			data, _ := getRes["data"].([]any)
+			for _, item := range data {
+				svc := item.(map[string]any)
+				if svc["name"] == "orphan-service-e2e" {
+					t.Fatalf("orphan-service-e2e was persisted despite validation failure (atomic rollback failed)!")
+				}
+			}
+		}
+	})
+
+	// Step 2: Valid Multi-Tier Declarative Ingestion
+	t.Run("Valid Multi-Tier Declarative Ingestion", func(t *testing.T) {
+		validYAML := `
+version: "api.apirout.io/v1"
+groups:
+  - name: "e2e-gitops-grp"
+    description: "Group created via declarative gitops"
+upstreams:
+  - name: "e2e-gitops-upstream"
+    algorithm: "round-robin"
+    targets:
+      - target: "127.0.0.1:8100"
+        host: "127.0.0.1"
+        port: 8100
+        weight: 100
+        enabled: true
+services:
+  - name: "e2e-gitops-svc"
+    protocol: "http"
+    path: "/health"
+    upstream_name: "e2e-gitops-upstream"
+    enabled: true
+consumers:
+  - username: "e2e-gitops-consumer"
+    group_name: "e2e-gitops-grp"
+    status: "active"
+endpoints:
+  - path: "/api/e2e-gitops-endpoint"
+    name: "E2E GitOps Endpoint"
+    method: "GET"
+    service_name: "e2e-gitops-svc"
+    group_name: "e2e-gitops-grp"
+    enabled: true
+    is_public: true
+`
+		status, resMap, rawBody := adminRequestRaw(t, "POST", "/api/v1/metadata/import", "application/x-yaml", []byte(validYAML))
+		if status != http.StatusOK {
+			t.Fatalf("expected 200 OK for valid import, got %d: %s", status, string(rawBody))
+		}
+		if resMap["status"] != true {
+			t.Errorf("expected status true, got: %+v", resMap)
+		}
+
+		// Step 3: Verify All Entities Queryable in Control Plane
+		status, svcList := adminRequest(t, "GET", "/api/v1/services", nil)
+		if status != http.StatusOK {
+			t.Errorf("failed to list services: %d", status)
+		}
+		foundSvc := false
+		if data, ok := svcList["data"].([]any); ok {
+			for _, item := range data {
+				if s := item.(map[string]any); s["name"] == "e2e-gitops-svc" {
+					foundSvc = true
+					break
+				}
+			}
+		}
+		if !foundSvc {
+			t.Errorf("e2e-gitops-svc not found in services list")
+		}
+
+		status, epList := adminRequest(t, "GET", "/api/v1/endpoints", nil)
+		if status != http.StatusOK {
+			t.Errorf("failed to list endpoints: %d", status)
+		}
+		foundEP := false
+		var epID string
+		if data, ok := epList["data"].([]any); ok {
+			for _, item := range data {
+				if ep := item.(map[string]any); ep["path"] == "/api/e2e-gitops-endpoint" {
+					foundEP = true
+					epID = fmt.Sprintf("%v", ep["id"])
+					break
+				}
+			}
+		}
+		if !foundEP {
+			t.Errorf("/api/e2e-gitops-endpoint not found in endpoints list")
+		}
+
+		// Step 4: Idempotent Re-Import
+		status2, resMap2, rawBody2 := adminRequestRaw(t, "POST", "/api/v1/metadata/import", "application/x-yaml", []byte(validYAML))
+		if status2 != http.StatusOK {
+			t.Fatalf("expected 200 OK on re-import, got %d: %s", status2, string(rawBody2))
+		}
+		if resMap2["status"] != true {
+			t.Errorf("expected status true on re-import, got: %+v", resMap2)
+		}
+
+		// Cleanup
+		t.Cleanup(func() {
+			if epID != "" {
+				_, _ = adminRequest(t, "DELETE", "/api/v1/endpoints/"+epID, nil)
+			}
+		})
+	})
+}
+
+func TestE2E_RadixRouterAndMethodNotAllowed(t *testing.T) {
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	svcName := "e2e-radix-svc-" + suffix
+	routePath := "/api/e2e-radix-" + suffix
+
+	// Create service pointing to status health endpoint (127.0.0.1:8100)
+	svcPayload := map[string]any{
+		"name":     svcName,
+		"protocol": "http",
+		"host":     "127.0.0.1",
+		"port":     8100,
+		"path":     "/health",
+		"enabled":  true,
+	}
+	code, svcRes := adminRequest(t, "POST", "/api/v1/services", svcPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create service: %d %v", code, svcRes)
+	}
+	svcID := extractID(svcRes)
+	t.Cleanup(func() {
+		if svcID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/services/"+svcID, nil)
+		}
+	})
+
+	// Create endpoint GET routePath
+	epPayload := map[string]any{
+		"service_id": svcID,
+		"method":     "GET",
+		"path":       routePath,
+		"strip_path": true,
+		"enabled":    true,
+		"is_public":  true,
+	}
+	code, epRes := adminRequest(t, "POST", "/api/v1/endpoints", epPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create endpoint: %d %v", code, epRes)
+	}
+	epID := extractID(epRes)
+	t.Cleanup(func() {
+		if epID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/endpoints/"+epID, nil)
+		}
+	})
+
+	// Allow EventBus to synchronize in-memory router
+	time.Sleep(200 * time.Millisecond)
+
+	// Subtest 1: Exact Match GET succeeds through radix router
+	t.Run("GET Route Resolution", func(t *testing.T) {
+		statusCode, _, body := gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
+		if statusCode != http.StatusOK {
+			t.Fatalf("expected 200 OK from gateway, got %d: %s", statusCode, string(body))
+		}
+	})
+
+	// Subtest 2: Method Not Allowed (405) with Allow header
+	t.Run("HTTP 405 Method Not Allowed", func(t *testing.T) {
+		for _, method := range []string{"POST", "DELETE", "PUT"} {
+			statusCode, headers, _ := gatewayRequestWithHeaders(t, method, routePath, nil, nil)
+			if statusCode != http.StatusMethodNotAllowed {
+				t.Errorf("expected 405 for %s %s, got %d", method, routePath, statusCode)
+			}
+			allowHeader := headers.Get("Allow")
+			if !strings.Contains(allowHeader, "GET") {
+				t.Errorf("expected Allow header containing GET, got: %s", allowHeader)
+			}
+		}
+	})
+
+	// Subtest 3: HTTP 404 for Non-Existent Route
+	t.Run("HTTP 404 Route Not Found", func(t *testing.T) {
+		statusCode, _, _ := gatewayRequestWithHeaders(t, "GET", "/api/ghost-route-not-here-99", nil, nil)
+		if statusCode != http.StatusNotFound {
+			t.Errorf("expected 404 for non-existent route, got %d", statusCode)
+		}
+	})
+}
+
+func TestE2E_PassiveCircuitBreakerAndFailover(t *testing.T) {
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	upName := "e2e-cb-upstream-" + suffix
+	svcName := "e2e-cb-svc-" + suffix
+	routePath := "/api/e2e-cb-" + suffix
+
+	// Create upstream with unreachable target (dead port 59199)
+	upPayload := map[string]any{
+		"name":      upName,
+		"algorithm": "round-robin",
+		"slots":     1000,
+		"enabled":   true,
+	}
+	code, upRes := adminRequest(t, "POST", "/api/v1/upstreams", upPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create upstream: %d %v", code, upRes)
+	}
+	upID := extractID(upRes)
+	t.Cleanup(func() {
+		if upID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/upstreams/"+upID, nil)
+		}
+	})
+
+	// Add target pointing to dead port
+	targetPayload := map[string]any{
+		"target":  "127.0.0.1:59199",
+		"host":    "127.0.0.1",
+		"port":    59199,
+		"weight":  100,
+		"enabled": true,
+	}
+	code, _ = adminRequest(t, "POST", fmt.Sprintf("/api/v1/upstreams/%s/targets", upID), targetPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create target: %d", code)
+	}
+
+	// Create service pointing to this upstream
+	svcPayload := map[string]any{
+		"name":        svcName,
+		"protocol":    "http",
+		"path":        "/test",
+		"upstream_id": upID,
+		"enabled":     true,
+	}
+	code, svcRes := adminRequest(t, "POST", "/api/v1/services", svcPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create service: %d %v", code, svcRes)
+	}
+	svcID := extractID(svcRes)
+	t.Cleanup(func() {
+		if svcID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/services/"+svcID, nil)
+		}
+	})
+
+	// Create endpoint
+	epPayload := map[string]any{
+		"service_id": svcID,
+		"method":     "GET",
+		"path":       routePath,
+		"enabled":    true,
+		"is_public":  true,
+	}
+	code, epRes := adminRequest(t, "POST", "/api/v1/endpoints", epPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create endpoint: %d %v", code, epRes)
+	}
+	epID := extractID(epRes)
+	t.Cleanup(func() {
+		if epID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/endpoints/"+epID, nil)
+		}
+	})
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Send requests to trip the circuit breaker (threshold = 3 consecutive failures)
+	for i := 0; i < 3; i++ {
+		_, _, _ = gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
+	}
+
+	// Once tripped, subsequent requests immediately fast-fail with HTTP 503 Service Unavailable
+	t.Run("Fast-Fail HTTP 503 When Tripped", func(t *testing.T) {
+		statusCode, _, body := gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
+		if statusCode != http.StatusServiceUnavailable {
+			t.Fatalf("expected 503 Service Unavailable after circuit tripped, got %d: %s", statusCode, string(body))
+		}
+		if !strings.Contains(string(body), "no healthy upstream targets available") {
+			t.Errorf("expected 'no healthy upstream targets available' in error body, got: %s", string(body))
+		}
+	})
+}
+
+func TestE2E_ConsumerAuthAndRateLimiting(t *testing.T) {
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	username := "e2e-user-" + suffix
+	svcName := "e2e-auth-svc-" + suffix
+	routePath := "/api/e2e-auth-" + suffix
+
+	// 1. Create Consumer
+	consumerPayload := map[string]any{
+		"username": username,
+		"status":   "active",
+	}
+	code, consRes := adminRequest(t, "POST", "/api/v1/consumers", consumerPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create consumer: %d %v", code, consRes)
+	}
+	consumerID := extractID(consRes)
+	t.Cleanup(func() {
+		if consumerID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/consumers/"+consumerID, nil)
+		}
+	})
+
+	// 2. Create API Key
+	keyPayload := map[string]any{
+		"name":     "E2E Rate Limit Key",
+		"key_type": "api-key",
+	}
+	code, credRes := adminRequest(t, "POST", fmt.Sprintf("/api/v1/consumers/%s/credentials", consumerID), keyPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create credential: %d %v", code, credRes)
+	}
+	apiKey := fmt.Sprintf("%v", credRes["key_secret"])
+	if apiKey == "" || apiKey == "<nil>" {
+		if d, ok := credRes["data"].(map[string]any); ok {
+			apiKey = fmt.Sprintf("%v", d["key_secret"])
+		}
+	}
+
+	// 3. Create service pointing to status health
+	svcPayload := map[string]any{
+		"name":     svcName,
+		"protocol": "http",
+		"host":     "127.0.0.1",
+		"port":     8100,
+		"path":     "/health",
+		"enabled":  true,
+	}
+	code, svcRes := adminRequest(t, "POST", "/api/v1/services", svcPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create service: %d %v", code, svcRes)
+	}
+	svcID := extractID(svcRes)
+	t.Cleanup(func() {
+		if svcID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/services/"+svcID, nil)
+		}
+	})
+
+	// 4. Create protected endpoint with tight rate limit: RPM 10, Burst 2
+	epPayload := map[string]any{
+		"service_id":         svcID,
+		"method":             "GET",
+		"path":               routePath,
+		"strip_path":         true,
+		"is_public":          false, // Protected
+		"rate_limit_enabled": true,
+		"rate_limit_rpm":     10,
+		"rate_limit_burst":   2,
+		"enabled":            true,
+	}
+	code, epRes := adminRequest(t, "POST", "/api/v1/endpoints", epPayload)
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create endpoint: %d %v", code, epRes)
+	}
+	epID := extractID(epRes)
+	t.Cleanup(func() {
+		if epID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/endpoints/"+epID, nil)
+		}
+	})
+
+	// 5. Associate consumer with endpoint
+	routesPayload := map[string]any{
+		"route_ids": []string{epID},
+	}
+	code, _ = adminRequest(t, "PUT", fmt.Sprintf("/api/v1/consumers/%s/routes", consumerID), routesPayload)
+	if code != http.StatusOK {
+		t.Fatalf("failed to associate route with consumer: %d", code)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Missing Authentication -> 401 Unauthorized
+	t.Run("Missing Authentication Rejected", func(t *testing.T) {
+		statusCode, _, _ := gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
+		if statusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401 Unauthorized without auth, got %d", statusCode)
+		}
+	})
+
+	// Invalid API Key -> 401 Unauthorized
+	t.Run("Invalid API Key Rejected", func(t *testing.T) {
+		badHeaders := map[string]string{"X-API-Key": "ak_invalid_key_99999"}
+		statusCode, _, _ := gatewayRequestWithHeaders(t, "GET", routePath, badHeaders, nil)
+		if statusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401 Unauthorized with invalid key, got %d", statusCode)
+		}
+	})
+
+	// Valid API Key -> 200 OK
+	t.Run("Valid API Key Accepted", func(t *testing.T) {
+		authHeaders := map[string]string{"X-API-Key": apiKey}
+		statusCode, _, body := gatewayRequestWithHeaders(t, "GET", routePath, authHeaders, nil)
+		if statusCode != http.StatusOK {
+			t.Errorf("expected 200 OK with valid API key, got %d: %s", statusCode, string(body))
+		}
+	})
+
+	// Rate Limiting Burst Exceeded -> 429 Too Many Requests
+	t.Run("Rate Limiting Burst Exceeded", func(t *testing.T) {
+		authHeaders := map[string]string{"X-API-Key": apiKey}
+		got429 := false
+		for i := 0; i < 6; i++ {
+			statusCode, headers, _ := gatewayRequestWithHeaders(t, "GET", routePath, authHeaders, nil)
+			if statusCode == http.StatusTooManyRequests {
+				got429 = true
+				retryAfter := headers.Get("Retry-After")
+				if retryAfter == "" {
+					t.Errorf("expected Retry-After header on 429 response")
+				}
+				break
+			}
+		}
+		if !got429 {
+			t.Errorf("expected at least one 429 Too Many Requests after burst exceeded")
+		}
+	})
+}
+
+func TestE2E_AuditLoggingTelemetry(t *testing.T) {
+	// Send request through gateway
+	_, _, _ = gatewayRequestWithHeaders(t, "GET", "/health", nil, nil)
+
+	// Fetch audit logs from control plane
+	time.Sleep(100 * time.Millisecond)
+	status, res := adminRequest(t, "GET", "/api/v1/audit-logs", nil)
+	if status != http.StatusOK {
+		t.Fatalf("failed to fetch audit logs: %d", status)
+	}
+	logs, _ := res["data"].([]any)
+	if len(logs) == 0 {
+		t.Errorf("expected audit logs to contain records")
+	}
 }
