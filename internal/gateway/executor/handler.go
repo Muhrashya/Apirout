@@ -485,12 +485,44 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 		host = host[:idx]
 	}
 
+	// 1. Gateway-level host validation against registered gateway domains
+	if !h.isGatewayHostAllowed(host) {
+		statusCode = http.StatusForbidden
+		success = false
+		errStr := fmt.Sprintf("Host '%s' is not registered on this gateway", host)
+		errorMsg = &errStr
+		responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, errStr)
+		return
+	}
+
+	// 2. Endpoint-level domain restriction check
 	if !isDomainAllowed(host, endpoint.AllowedDomains) {
 		statusCode = http.StatusForbidden
 		success = false
 		errStr := "Domain not authorized to access this endpoint"
 		errorMsg = &errStr
 		responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, errStr)
+		return
+	}
+
+	// Dynamic Route-Level CORS handling
+	reqOrigin := r.Header.Get("Origin")
+	if reqOrigin != "" && endpoint.CorsOrigins != "" && endpoint.CorsOrigins != "*" {
+		if isOriginAllowed(reqOrigin, endpoint.CorsOrigins) {
+			rec.Header().Set("Access-Control-Allow-Origin", reqOrigin)
+			rec.Header().Set("Vary", "Origin")
+			rec.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+	} else if endpoint.CorsOrigins == "*" {
+		rec.Header().Set("Access-Control-Allow-Origin", "*")
+	}
+
+	// Handle preflight OPTIONS request for endpoint
+	if r.Method == http.MethodOptions {
+		rec.Header().Set("Access-Control-Allow-Methods", endpoint.Method)
+		rec.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Admin-Secret, X-Request-ID, X-Correlation-ID")
+		rec.Header().Set("Access-Control-Max-Age", "86400")
+		rec.WriteHeader(http.StatusNoContent)
 		return
 	}
 
@@ -967,6 +999,63 @@ func isDomainAllowed(host, allowedDomains string) bool {
 			if strings.HasSuffix(strings.ToLower(host), strings.ToLower(suffix)) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func isOriginAllowed(origin, allowedOrigins string) bool {
+	allowedOrigins = strings.TrimSpace(allowedOrigins)
+	if allowedOrigins == "" || allowedOrigins == "*" {
+		return true
+	}
+	origins := strings.Split(allowedOrigins, ",")
+	for _, o := range origins {
+		o = strings.TrimSpace(o)
+		if o == "" {
+			continue
+		}
+		if o == "*" || strings.EqualFold(o, origin) {
+			return true
+		}
+		if strings.HasPrefix(o, "*.") {
+			suffix := o[1:]
+			if strings.HasSuffix(strings.ToLower(origin), strings.ToLower(suffix)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (h *Handler) isGatewayHostAllowed(host string) bool {
+	if h.reader == nil {
+		return true
+	}
+	// Always allow localhost, internal loopbacks, and direct IPs
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasPrefix(host, "127.") {
+		return true
+	}
+
+	domains, err := h.reader.GetGatewayDomains()
+	if err != nil || len(domains) == 0 {
+		return true
+	}
+
+	hasCustomDomains := false
+	for _, d := range domains {
+		if !d.IsDefault && d.DomainName != "*" && d.DomainName != "localhost" {
+			hasCustomDomains = true
+			break
+		}
+	}
+	if !hasCustomDomains {
+		return true
+	}
+
+	for _, d := range domains {
+		if isDomainAllowed(host, d.DomainName) {
+			return true
 		}
 	}
 	return false

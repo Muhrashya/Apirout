@@ -111,3 +111,46 @@ func TestStatusRecorder(t *testing.T) {
 		t.Errorf("expected bytesWritten %d, got %d", len(data), sr.bytesWritten)
 	}
 }
+
+func TestIsDomainAllowed(t *testing.T) {
+	tests := []struct {
+		host           string
+		allowedDomains string
+		want           bool
+	}{
+		{"api.example.com", "*", true},
+		{"api.example.com", "", true},
+		{"api.example.com", "api.example.com", true},
+		{"api.example.com", "api.other.com, api.example.com", true},
+		{"sub.api.example.com", "*.example.com", true},
+		{"hacker.com", "api.example.com, internal.net", false},
+	}
+
+	for _, tt := range tests {
+		got := isDomainAllowed(tt.host, tt.allowedDomains)
+		if got != tt.want {
+			t.Errorf("isDomainAllowed(%q, %q) = %v, want %v", tt.host, tt.allowedDomains, got, tt.want)
+		}
+	}
+}
+
+func TestIsOriginAllowed(t *testing.T) {
+	tests := []struct {
+		origin         string
+		allowedOrigins string
+		want           bool
+	}{
+		{"https://app.client.com", "*", true},
+		{"https://app.client.com", "", true},
+		{"https://app.client.com", "https://app.client.com", true},
+		{"https://app.client.com", "https://other.com, https://app.client.com", true},
+		{"https://evil.com", "https://app.client.com", false},
+	}
+
+	for _, tt := range tests {
+		got := isOriginAllowed(tt.origin, tt.allowedOrigins)
+		if got != tt.want {
+			t.Errorf("isOriginAllowed(%q, %q) = %v, want %v", tt.origin, tt.allowedOrigins, got, tt.want)
+		}
+	}
+}

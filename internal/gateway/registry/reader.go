@@ -313,6 +313,17 @@ func (r *Reader) GetOutboundAuth(serviceID string) (*models.ServiceOutboundAuth,
 	return &auth, nil
 }
 
+// GetGatewayDomains returns all configured gateway domains
+func (r *Reader) GetGatewayDomains() ([]models.GatewayDomain, error) {
+	var domains []models.GatewayDomain
+	query := `SELECT id, domain_name, display_name, is_default, environment, COALESCE(default_allowed_ips, '*') as default_allowed_ips, description, created_at, updated_at FROM gateway_domains ORDER BY is_default DESC, domain_name ASC`
+	err := r.db.Select(&domains, query)
+	if err != nil {
+		return nil, err
+	}
+	return domains, nil
+}
+
 func getEnvInt(key string, defaultVal int) int {
 	if val := os.Getenv(key); val != "" {
 		var i int

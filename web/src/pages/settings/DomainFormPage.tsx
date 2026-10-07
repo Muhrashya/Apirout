@@ -52,7 +52,7 @@ export default function DomainFormPage() {
                 <span>Console Settings</span>
                 <span className="breadcrumb-sep">/</span>
                 <Link to="/settings/domains" style={{ color: '#2563eb', textDecoration: 'none' }}>
-                    Domains &amp; TLS
+                    Domains &amp; Routing
                 </Link>
                 <span className="breadcrumb-sep">/</span>
                 <span className="breadcrumb-curr">Register Domain</span>
@@ -63,7 +63,7 @@ export default function DomainFormPage() {
                 <div className="overview-title-col">
                     <h1 className="overview-title">Register Gateway Domain</h1>
                     <p className="overview-subtitle">
-                        Configure custom hostnames, edge TLS termination rules, and host header ingress bindings for Gateway traffic.
+                        Configure custom hostnames, host header routing rules, and edge ingress bindings for Gateway traffic.
                     </p>
                 </div>
                 <div className="overview-header-actions">
@@ -172,16 +172,16 @@ export default function DomainFormPage() {
                         </div>
 
                         <div className="form-group">
-                            <label className="label">Edge TLS / SSL Mode</label>
+                            <label className="label">Gateway Ingress Architecture</label>
                             <input
                                 type="text"
                                 className="input"
-                                value="TLS 1.3 Active (Automated Edge HTTPS)"
+                                value="Edge Offloaded Ingress (HTTP Gateway)"
                                 disabled
                                 style={{ background: '#f8fafc', color: '#475569', cursor: 'default' }}
                             />
                             <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                                Automated TLS encryption applied at the Gateway edge ingress reverse proxy.
+                                SSL/TLS encryption is terminated at the edge reverse proxy or load balancer (Cloudflare, Ingress, or AWS ALB) before routing into Apirout.
                             </span>
                         </div>
                     </div>

@@ -77,3 +77,12 @@ A deep outbound edge module operating at the Data Plane response seam that encap
 ### Normalized Error Envelope
 The canonical, machine-readable JSON error representation emitted by the Gateway Responder containing `status`, `message`, `code`, `request_id`, and `timestamp`, eliminating redundant field duplication while providing deterministic client branching and end-to-end distributed tracing.
 
+### Gateway Domain
+A registered hostname binding in Apirout (`gateway_domains`) that enforces host-header validation across incoming edge traffic, ensuring traffic targets authorized domain names.
+
+### Edge-Offloaded Ingress
+The cloud-native architectural pattern where SSL/TLS termination and certificate life cycles are handled by an edge proxy, Ingress controller, or load balancer (Cloudflare, AWS ALB, Nginx), while internal Apirout Data Plane containers operate high-performance HTTP listeners.
+
+### Dynamic Route CORS
+Fine-grained, per-endpoint Cross-Origin Resource Sharing headers (`endpoints.cors_origins`) evaluated dynamically during request execution to allow specific origin whitelists per route.
+
