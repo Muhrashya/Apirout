@@ -25,7 +25,7 @@ COPY . /build
 RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION}" -o apirout ./cmd/apirout
 
 # Stage 3: Minimal Production Alpine runtime
-FROM alpine:3.19
+FROM alpine:3.21
 
 WORKDIR /app
 RUN apk --no-cache add ca-certificates tzdata curl
