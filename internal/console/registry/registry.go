@@ -180,6 +180,11 @@ func (r *Registry) Close() error {
 	return r.db.Close()
 }
 
+// DB returns the underlying sqlx.DB instance
+func (r *Registry) DB() *sqlx.DB {
+	return r.db
+}
+
 // DBType returns the database type
 func (r *Registry) DBType() string {
 	return r.dbType

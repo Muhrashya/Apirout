@@ -79,6 +79,16 @@ func (r *Reader) GetEndpointByPath(path string) (*models.Endpoint, error) {
 	return &endpoint, err
 }
 
+// GetAllActiveEndpoints retrieves all enabled endpoints for compiling the in-memory Radix router
+func (r *Reader) GetAllActiveEndpoints() ([]models.Endpoint, error) {
+	var endpoints []models.Endpoint
+	err := r.db.Select(&endpoints, "SELECT * FROM endpoints WHERE enabled = TRUE ORDER BY LENGTH(path) DESC")
+	if err != nil {
+		return nil, err
+	}
+	return endpoints, nil
+}
+
 // GetQueryByID retrieves query definition by ID
 func (r *Reader) GetQueryByID(id string) (*models.Query, error) {
 	var query models.Query

@@ -16,7 +16,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/apirout/apirout/internal/core/crypto"
 	"github.com/apirout/apirout/internal/gateway/apiclientauth"
-	"github.com/apirout/apirout/internal/gateway/cache"
+	"github.com/apirout/apirout/internal/core/cache"
 	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/core/introspection"
 	"github.com/apirout/apirout/internal/core/sqldialect"
@@ -29,14 +29,14 @@ var identifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 type InstantCRUDHandler struct {
 	reader        *registry.Reader
 	encryptionKey string
-	connPool      *cache.ConnectionPool
+	connPool      *cache.ManagedConnectionPool
 	apiClientAuth *apiclientauth.Service
 	adminSecret   string
 	jwtSecret     string
 }
 
 // NewInstantCRUDHandler creates a new instant CRUD handler
-func NewInstantCRUDHandler(reader *registry.Reader, encryptionKey string, connPool *cache.ConnectionPool, apiClientAuth *apiclientauth.Service, adminSecret, jwtSecret string) *InstantCRUDHandler {
+func NewInstantCRUDHandler(reader *registry.Reader, encryptionKey string, connPool *cache.ManagedConnectionPool, apiClientAuth *apiclientauth.Service, adminSecret, jwtSecret string) *InstantCRUDHandler {
 	return &InstantCRUDHandler{
 		reader:        reader,
 		encryptionKey: encryptionKey,

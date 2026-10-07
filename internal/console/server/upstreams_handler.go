@@ -460,8 +460,11 @@ func StartBackgroundHealthChecker(reg *registry.Registry, pub *publisher.RedisPu
 						status, _, _ := PerformActiveHealthCheck(t.Host, t.Port, u.HealthCheckPath, u.HealthCheckTimeout)
 						if status != t.HealthStatus {
 							_ = reg.UpdateTargetHealthStatus(t.ID, status)
+							if pub != nil {
+								_ = pub.PublishTargetHealthChanged(t.ID, status)
+							}
 							if logger != nil {
-								logger.Info("Target health updated by background checker", "upstream", u.Name, "target", t.Target, "status", status)
+								logger.Info("Target health updated by background checker and broadcasted to Data Plane", "upstream", u.Name, "target", t.Target, "status", status)
 							}
 						}
 					}

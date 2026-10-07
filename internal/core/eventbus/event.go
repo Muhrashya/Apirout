@@ -18,6 +18,7 @@ const (
 	EntityConnection    EntityType = "connection"
 	EntityQuery         EntityType = "query"
 	EntitySetting       EntityType = "setting"
+	EntityTarget        EntityType = "target"
 	EntityAll           EntityType = "*"
 )
 

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/apirout/apirout/internal/console/publisher"
+	"github.com/apirout/apirout/internal/core/cache"
 	"github.com/apirout/apirout/internal/core/eventbus"
-	"github.com/apirout/apirout/internal/gateway/cache"
 )
 
 func TestControlToDataPlaneSync_InMemoryIntegration(t *testing.T) {
@@ -17,7 +17,7 @@ func TestControlToDataPlaneSync_InMemoryIntegration(t *testing.T) {
 
 	// 2. Setup Data Plane Caches
 	epCache := cache.NewEndpointCache(5 * time.Minute)
-	connPool := cache.NewConnectionPool(10*time.Minute, 10)
+	connPool := cache.NewManagedConnectionPool(10*time.Minute, 10)
 	countCache := cache.NewCountCache(5 * time.Minute)
 
 	// Pre-populate Data Plane caches
@@ -39,7 +39,11 @@ func TestControlToDataPlaneSync_InMemoryIntegration(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	routeInvalidated := 0
 	subscriber := cache.NewSubscriberWithBus(bus, epCache, connPool, countCache, nil)
+	subscriber.SetOnRouteInvalidated(func() {
+		routeInvalidated++
+	})
 	subscriber.Start(ctx)
 	defer subscriber.Stop()
 
@@ -59,6 +63,9 @@ func TestControlToDataPlaneSync_InMemoryIntegration(t *testing.T) {
 	}
 	if _, found := countCache.Get("ep-users-123"); found {
 		t.Errorf("expected count cache to be invalidated after Control Plane update")
+	}
+	if routeInvalidated != 1 {
+		t.Errorf("expected onRouteInvalidated to be invoked once, got %d", routeInvalidated)
 	}
 
 	// 7. Control Plane: Simulate target connection reset

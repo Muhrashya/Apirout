@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/apirout/apirout/internal/console/cache"
 	"github.com/apirout/apirout/internal/console/registry"
+	"github.com/apirout/apirout/internal/core/cache"
 	"github.com/apirout/apirout/internal/core/crypto"
 	"github.com/apirout/apirout/internal/core/targets"
 	"github.com/apirout/apirout/internal/core/tunnel"
@@ -27,7 +27,7 @@ type Service struct {
 	registry       *registry.Registry
 	encryptionKey  []byte
 	endpointCache  *cache.EndpointCache
-	connectionPool *cache.ConnectionPool
+	connectionPool *cache.ManagedConnectionPool
 	countCache     *cache.CountCache
 }
 
@@ -42,7 +42,7 @@ func NewService(reg *registry.Registry, encryptionKey string) *Service {
 	epCache.StartCleanupRoutine(1 * time.Minute)
 
 	// Create connection pool with 30 minute idle timeout
-	connPool := cache.NewConnectionPool(30*time.Minute, 50)
+	connPool := cache.NewManagedConnectionPool(30*time.Minute, 50)
 
 	// Create count cache with 60 second TTL
 	countCache := cache.NewCountCache(60 * time.Second)
@@ -63,7 +63,7 @@ func (s *Service) GetEndpointCache() *cache.EndpointCache {
 }
 
 // GetConnectionPool returns the connection pool for invalidation
-func (s *Service) GetConnectionPool() *cache.ConnectionPool {
+func (s *Service) GetConnectionPool() *cache.ManagedConnectionPool {
 	return s.connectionPool
 }
 
@@ -762,14 +762,9 @@ func (s *Service) buildConnectionString(conn *registry.Connection, password stri
 			RemotePort: conn.Port,
 		}
 
-		sshTunnel, err := tunnel.NewSSHTunnel(tunnelCfg)
+		localPort, err := s.connectionPool.GetTunnelPort(conn.ID, tunnelCfg)
 		if err != nil {
-			return "", fmt.Errorf("failed to create SSH tunnel: %w", err)
-		}
-
-		localPort, err := sshTunnel.Start()
-		if err != nil {
-			return "", fmt.Errorf("failed to start SSH tunnel: %w", err)
+			return "", fmt.Errorf("failed to get managed SSH tunnel: %w", err)
 		}
 
 		// Use localhost with the tunnel's local port

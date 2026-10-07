@@ -15,7 +15,7 @@ type CountCacheEntry struct {
 	ExpiresAt time.Time
 }
 
-// CountCache provides in-memory caching for count results
+// CountCache provides thread-safe in-memory caching for count results
 type CountCache struct {
 	mu     sync.RWMutex
 	data   map[string]CountCacheEntry
@@ -140,5 +140,9 @@ func (c *CountCache) cleanup() {
 
 // Stop stops the cleanup routine
 func (c *CountCache) Stop() {
-	close(c.stopCh)
+	select {
+	case <-c.stopCh:
+	default:
+		close(c.stopCh)
+	}
 }

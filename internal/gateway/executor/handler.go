@@ -12,9 +12,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"errors"
 	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/core/iputil"
 	"github.com/apirout/apirout/internal/core/models"
+	"github.com/apirout/apirout/internal/core/router"
+	"github.com/apirout/apirout/internal/core/upstream"
 	"github.com/apirout/apirout/internal/gateway/apiclientauth"
 	"github.com/apirout/apirout/internal/gateway/auth"
 	"github.com/apirout/apirout/internal/gateway/registry"
@@ -36,11 +39,13 @@ type Handler struct {
 	instantHandler   *InstantCRUDHandler
 	rateLimiter      *tokenBucketLimiter
 	proxyTransports  sync.Map // serviceID -> *http.Transport
+	router           atomic.Pointer[router.RadixRouter]
+	circuitBreaker   *upstream.PassiveCircuitBreaker
 }
 
 // NewHandler creates a new dynamic API handler
 func NewHandler(executor *Service, reader *registry.Reader, apiClientAuth *apiclientauth.Service, authEngine *auth.Engine, outboundInjector *auth.OutboundInjector, instantHandler *InstantCRUDHandler) *Handler {
-	return &Handler{
+	h := &Handler{
 		executor:         executor,
 		reader:           reader,
 		apiClientAuth:    apiClientAuth,
@@ -48,6 +53,61 @@ func NewHandler(executor *Service, reader *registry.Reader, apiClientAuth *apicl
 		outboundInjector: outboundInjector,
 		instantHandler:   instantHandler,
 		rateLimiter:      newTokenBucketLimiter(),
+		circuitBreaker:   upstream.NewPassiveCircuitBreaker(3, 15*time.Second),
+	}
+
+	// Preload in-memory Radix router from active endpoints at boot
+	r := router.NewRadixRouter()
+	if reader != nil {
+		if endpoints, err := reader.GetAllActiveEndpoints(); err == nil {
+			r = router.BuildFromEndpoints(endpoints)
+		}
+	}
+	h.router.Store(r)
+
+	return h
+}
+
+// SetRouter atomically installs a new compiled RadixRouter
+func (h *Handler) SetRouter(r *router.RadixRouter) {
+	if r != nil {
+		h.router.Store(r)
+	}
+}
+
+// GetRouter returns the current active in-memory RadixRouter
+func (h *Handler) GetRouter() *router.RadixRouter {
+	return h.router.Load()
+}
+
+// ReloadRouterFromDB compiles and atomically swaps the router from registry database
+func (h *Handler) ReloadRouterFromDB() error {
+	if h.reader == nil {
+		return errors.New("registry reader not initialized")
+	}
+	endpoints, err := h.reader.GetAllActiveEndpoints()
+	if err != nil {
+		return err
+	}
+	newRouter := router.BuildFromEndpoints(endpoints)
+	h.SetRouter(newRouter)
+	return nil
+}
+
+// GetCircuitBreaker returns the passive circuit breaker instance
+func (h *Handler) GetCircuitBreaker() *upstream.PassiveCircuitBreaker {
+	return h.circuitBreaker
+}
+
+// OnTargetHealthChanged updates the circuit breaker state based on Control Plane health events
+func (h *Handler) OnTargetHealthChanged(targetID, action string) {
+	if h.circuitBreaker == nil {
+		return
+	}
+	if strings.EqualFold(action, "deleted") || strings.EqualFold(action, "unhealthy") {
+		h.circuitBreaker.TripTarget(targetID)
+	} else {
+		h.circuitBreaker.ResetTarget(targetID)
 	}
 }
 
@@ -256,6 +316,11 @@ func parseParams(r *http.Request) map[string]interface{} {
 	return params
 }
 
+// ServeHTTP implements http.Handler
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.Execute(w, r)
+}
+
 // Execute handles dynamic request matching and routing through Kong architectural flow:
 // Request -> Route -> Consumer Auth -> Consumer Authz -> Service -> [Direct Host OR Upstream -> Target OR Database Query/Instant CRUD]
 func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
@@ -313,21 +378,23 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 			"upstream_latency_ms": upLatency,
 		})
 
-		go func() {
-			_ = h.reader.CreateAuditLog(&models.AuditLog{
-				ID:           fmtID(),
-				EventType:    "api_request",
-				UserID:       userID,
-				APIClientID:  apiClientID,
-				EndpointID:   endpointID,
-				IPAddress:    &clientIP,
-				Details:      string(details),
-				DurationMs:   &dur,
-				Success:      success,
-				ErrorMessage: errorMsg,
-				Timestamp:    start,
-			})
-		}()
+		if h.reader != nil {
+			go func() {
+				_ = h.reader.CreateAuditLog(&models.AuditLog{
+					ID:           fmtID(),
+					EventType:    "api_request",
+					UserID:       userID,
+					APIClientID:  apiClientID,
+					EndpointID:   endpointID,
+					IPAddress:    &clientIP,
+					Details:      string(details),
+					DurationMs:   &dur,
+					Success:      success,
+					ErrorMessage: errorMsg,
+					Timestamp:    start,
+				})
+			}()
+		}
 	}()
 
 	if !strings.HasPrefix(path, "/api/") {
@@ -337,15 +404,40 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Route Matcher
-	endpoint, err := h.reader.GetEndpointByPath(path)
-	if err != nil {
-		statusCode = http.StatusInternalServerError
-		success = false
-		errStr := "Database error"
-		errorMsg = &errStr
-		httputil.WriteJSONError(rec, http.StatusInternalServerError, errStr)
-		return
+	// 1. In-Memory Radix Route Matcher (<1ms)
+	var endpoint *models.Endpoint
+	var pathParams map[string]string
+	curRouter := h.router.Load()
+	if curRouter != nil {
+		res, matchErr := curRouter.Match(path, r.Method)
+		if matchErr == nil && res != nil {
+			endpoint = res.Endpoint
+			pathParams = res.Params
+		} else if errors.Is(matchErr, router.ErrMethodNotAllowed) {
+			statusCode = http.StatusMethodNotAllowed
+			success = false
+			errStr := "Method not allowed"
+			errorMsg = &errStr
+			if len(res.AllowedMethods) > 0 {
+				rec.Header().Set("Allow", strings.Join(res.AllowedMethods, ", "))
+			}
+			httputil.WriteJSONError(rec, http.StatusMethodNotAllowed, errStr)
+			return
+		}
+	}
+
+	// Fallback to registry reader if route not found in in-memory tree
+	if endpoint == nil && h.reader != nil {
+		ep, err := h.reader.GetEndpointByPath(path)
+		if err != nil {
+			statusCode = http.StatusInternalServerError
+			success = false
+			errStr := "Database error"
+			errorMsg = &errStr
+			httputil.WriteJSONError(rec, http.StatusInternalServerError, errStr)
+			return
+		}
+		endpoint = ep
 	}
 
 	if endpoint == nil {
@@ -372,8 +464,8 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Match HTTP method
-	if endpoint.Method != "*" && endpoint.Method != "ALL" && endpoint.Method != "" && !strings.Contains(endpoint.Method, r.Method) {
+	// Match HTTP method (for fallback paths)
+	if endpoint.Method != "*" && endpoint.Method != "ALL" && endpoint.Method != "ANY" && endpoint.Method != "" && !strings.Contains(endpoint.Method, r.Method) {
 		statusCode = http.StatusMethodNotAllowed
 		success = false
 		errStr := "Method not allowed"
@@ -549,10 +641,15 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 			if service.UpstreamID != nil && *service.UpstreamID != "" {
 				upstream, _ := h.reader.GetUpstreamByID(*service.UpstreamID)
 				targets, err := h.reader.GetHealthyTargetsByUpstreamID(*service.UpstreamID)
-				if err != nil || len(targets) == 0 {
+				availableTargets := targets
+				if h.circuitBreaker != nil {
+					avail, _ := h.circuitBreaker.FilterAvailable(targets)
+					availableTargets = avail
+				}
+				if err != nil || len(availableTargets) == 0 {
 					statusCode = http.StatusServiceUnavailable
 					success = false
-					errStr := "All upstream targets are unavailable"
+					errStr := "no healthy upstream targets available"
 					errorMsg = &errStr
 					httputil.WriteJSONError(rec, http.StatusServiceUnavailable, errStr)
 					return
@@ -562,12 +659,12 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 				if upstream != nil && upstream.Algorithm != "" {
 					algorithm = upstream.Algorithm
 				}
-				target := selectTarget(targets, algorithm, clientIP, r, *service.UpstreamID)
+				target := selectTarget(availableTargets, algorithm, clientIP, r, *service.UpstreamID)
 				if target != nil {
 					upstreamURI = fmt.Sprintf("%s://%s:%d%s", service.Protocol, target.Host, target.Port, service.Path)
 					releaseConn := trackTargetConn(target.ID)
 					defer releaseConn()
-					h.reverseProxyRequest(rec, r, endpoint, service, target.Host, target.Port, outboundAuth, &upstreamDurationMs)
+					h.reverseProxyRequest(rec, r, endpoint, service, target.Host, target.Port, target.ID, outboundAuth, &upstreamDurationMs)
 					return
 				}
 			}
@@ -575,7 +672,7 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 			// Case B: Service points directly to a backend host/port
 			if service.Host != "" && service.Protocol != "database" {
 				upstreamURI = fmt.Sprintf("%s://%s:%d%s", service.Protocol, service.Host, service.Port, service.Path)
-				h.reverseProxyRequest(rec, r, endpoint, service, service.Host, service.Port, outboundAuth, &upstreamDurationMs)
+				h.reverseProxyRequest(rec, r, endpoint, service, service.Host, service.Port, "", outboundAuth, &upstreamDurationMs)
 				return
 			}
 
@@ -593,6 +690,9 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 				// C1: If route has an explicit SQL query attached, execute that query
 				if endpoint.QueryID != nil && *endpoint.QueryID != "" {
 					params := parseParams(r)
+					for k, v := range pathParams {
+						params[k] = v
+					}
 					upStart := time.Now()
 					result, err := h.executor.ExecuteEndpointByPath(path, params, session)
 					upstreamDurationMs = int(time.Since(upStart).Milliseconds())
@@ -631,6 +731,9 @@ func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
 			upstreamURI = "internal://sql-engine"
 		}
 		params := parseParams(r)
+		for k, v := range pathParams {
+			params[k] = v
+		}
 		upStart := time.Now()
 		result, err := h.executor.ExecuteEndpointByPath(path, params, session)
 		upstreamDurationMs = int(time.Since(upStart).Milliseconds())
@@ -694,7 +797,7 @@ func (h *Handler) getTransport(service *models.Service) *http.Transport {
 }
 
 // reverseProxyRequest proxies an HTTP request to the resolved backend instance with accurate latency measurement
-func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, endpoint *models.Endpoint, service *models.Service, backendHost string, backendPort int, outboundAuth *models.ServiceOutboundAuth, upDuration *int) {
+func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, endpoint *models.Endpoint, service *models.Service, backendHost string, backendPort int, targetID string, outboundAuth *models.ServiceOutboundAuth, upDuration *int) {
 	protocol := service.Protocol
 	if protocol == "" || protocol == "database" {
 		protocol = "http"
@@ -759,7 +862,21 @@ func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, en
 		if upDuration != nil {
 			*upDuration = int(time.Since(upStart).Milliseconds())
 		}
+		if h.circuitBreaker != nil && targetID != "" {
+			h.circuitBreaker.RecordFailure(targetID)
+		}
 		httputil.WriteJSONError(rw, http.StatusBadGateway, fmt.Sprintf("Backend service %s unreachable: %v", service.Name, proxyErr))
+	}
+
+	proxy.ModifyResponse = func(res *http.Response) error {
+		if h.circuitBreaker != nil && targetID != "" {
+			if res.StatusCode >= 500 {
+				h.circuitBreaker.RecordFailure(targetID)
+			} else {
+				h.circuitBreaker.RecordSuccess(targetID)
+			}
+		}
+		return nil
 	}
 
 	proxy.ServeHTTP(w, r)

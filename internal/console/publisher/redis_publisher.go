@@ -125,6 +125,37 @@ func (p *RedisPublisher) PublishConnectionChanged(action, connectionID string) e
 	return nil
 }
 
+// PublishTargetHealthChanged broadcasts an upstream target health state transition
+func (p *RedisPublisher) PublishTargetHealthChanged(targetID, healthStatus string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if p.bus != nil {
+		action := eventbus.ActionUpdated
+		if healthStatus == "unhealthy" {
+			action = eventbus.ActionDeleted
+		}
+		_ = p.bus.Publish(ctx, eventbus.NewInvalidationEvent(eventbus.EntityTarget, targetID, action))
+	}
+
+	if p.logger != nil {
+		p.logger.Info("Broadcasted target health change event to Data Plane", "target_id", targetID, "health_status", healthStatus)
+	}
+	return nil
+}
+
+// PublishBulkConfigUpdated broadcasts a cluster-wide configuration invalidation event
+func (p *RedisPublisher) PublishBulkConfigUpdated() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if p.bus != nil {
+		_ = p.bus.Publish(ctx, eventbus.NewInvalidationEvent(eventbus.EntityAll, "*", eventbus.ActionUpdated))
+	}
+
+	return p.PublishEndpointChanged("BULK_CONFIG_UPDATED", "*", "*")
+}
+
 // Close closes the Redis connection and EventBus
 func (p *RedisPublisher) Close() error {
 	if p.bus != nil {

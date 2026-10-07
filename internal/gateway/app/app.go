@@ -12,11 +12,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"github.com/apirout/apirout/internal/config"
+	"github.com/apirout/apirout/internal/core/cache"
+	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/gateway/apiclientauth"
 	"github.com/apirout/apirout/internal/gateway/auth"
-	"github.com/apirout/apirout/internal/gateway/cache"
 	"github.com/apirout/apirout/internal/gateway/executor"
-	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/gateway/middleware"
 	"github.com/apirout/apirout/internal/gateway/registry"
 )
@@ -52,7 +52,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	endpointCache.StartCleanupRoutine(2 * time.Minute)
 	app.closers = append(app.closers, func() { endpointCache.Stop() })
 
-	connPool := cache.NewConnectionPool(15*time.Minute, 50)
+	connPool := cache.NewManagedConnectionPool(15*time.Minute, 50)
 	app.closers = append(app.closers, func() { connPool.Close() })
 
 	countCache := cache.NewCountCache(60 * time.Second)
@@ -75,6 +75,21 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	outboundInjector := auth.NewOutboundInjector(cfg.EncryptionKey)
 	instantHandler := executor.NewInstantCRUDHandler(reader, cfg.EncryptionKey, connPool, apiClientAuthService, cfg.AdminSecret, cfg.JWTSecret)
 	executorHandler := executor.NewHandler(executorService, reader, apiClientAuthService, authEngine, outboundInjector, instantHandler)
+
+	// Wire zero-downtime atomic pointer swapping on EventBus route invalidation
+	app.redisSub.SetOnRouteInvalidated(func() {
+		if err := executorHandler.ReloadRouterFromDB(); err != nil {
+			logger.Error("Failed to reload in-memory Radix router upon invalidation", "error", err)
+		} else {
+			logger.Info("In-memory Radix router dynamically swapped upon invalidation")
+		}
+	})
+
+	// Wire Control Plane target health transitions into edge circuit breaker
+	app.redisSub.SetOnTargetHealthChanged(func(targetID, action string) {
+		executorHandler.OnTargetHealthChanged(targetID, action)
+		logger.Info("Target circuit breaker state updated via Control Plane health event", "target_id", targetID, "action", action)
+	})
 
 	// Public Consumer Gateway Router (Port 8000)
 	r := mux.NewRouter()

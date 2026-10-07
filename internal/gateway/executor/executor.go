@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apirout/apirout/internal/core/cache"
 	"github.com/apirout/apirout/internal/core/crypto"
 	"github.com/apirout/apirout/internal/core/models"
 	"github.com/apirout/apirout/internal/core/targets"
 	"github.com/apirout/apirout/internal/core/tunnel"
-	"github.com/apirout/apirout/internal/gateway/cache"
 	"github.com/apirout/apirout/internal/gateway/registry"
 )
 
@@ -34,13 +34,13 @@ type Service struct {
 	reader         *registry.Reader
 	encryptionKey  []byte
 	endpointCache  *cache.EndpointCache
-	connectionPool *cache.ConnectionPool
+	connectionPool *cache.ManagedConnectionPool
 	countCache     *cache.CountCache
 }
 
 // NewService creates a new execution service instance
 func NewService(reader *registry.Reader, rawEncryptionKey string,
-	epCache *cache.EndpointCache, connPool *cache.ConnectionPool, countCache *cache.CountCache) *Service {
+	epCache *cache.EndpointCache, connPool *cache.ManagedConnectionPool, countCache *cache.CountCache) *Service {
 
 	key := crypto.NormalizeKey(rawEncryptionKey)
 
@@ -290,14 +290,9 @@ func (s *Service) buildConnectionString(conn *models.Connection, password string
 			RemotePort: conn.Port,
 		}
 
-		tun, err := tunnel.NewSSHTunnel(tunnelCfg)
+		localPort, err := s.connectionPool.GetTunnelPort(conn.ID, tunnelCfg)
 		if err != nil {
-			return "", fmt.Errorf("init ssh tunnel: %w", err)
-		}
-
-		localPort, err := tun.Start()
-		if err != nil {
-			return "", fmt.Errorf("start ssh tunnel: %w", err)
+			return "", fmt.Errorf("managed ssh tunnel: %w", err)
 		}
 
 		host = "127.0.0.1"

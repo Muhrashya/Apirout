@@ -31,10 +31,10 @@ type EndpointConfig struct {
 
 // EndpointCache stores endpoint configs in memory with TTL
 type EndpointCache struct {
-	mu      sync.RWMutex
-	items   map[string]*EndpointConfig
-	ttl     time.Duration
-	stopCh  chan struct{}
+	mu     sync.RWMutex
+	items  map[string]*EndpointConfig
+	ttl    time.Duration
+	stopCh chan struct{}
 }
 
 // NewEndpointCache creates a new in-memory endpoint cache
@@ -91,11 +91,52 @@ func (c *EndpointCache) InvalidateByEndpointID(endpointID string) {
 	}
 }
 
+// InvalidateByID is an alias for InvalidateByEndpointID
+func (c *EndpointCache) InvalidateByID(endpointID string) {
+	c.InvalidateByEndpointID(endpointID)
+}
+
+// InvalidateByQuery invalidates cache entries using a specific query ID
+func (c *EndpointCache) InvalidateByQuery(queryID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for path, config := range c.items {
+		if config.QueryID != nil && *config.QueryID == queryID {
+			delete(c.items, path)
+		}
+	}
+}
+
+// InvalidateByConnection invalidates cache entries using a specific connection ID
+func (c *EndpointCache) InvalidateByConnection(connectionID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for path, config := range c.items {
+		if config.ConnectionID != nil && *config.ConnectionID == connectionID {
+			delete(c.items, path)
+		}
+	}
+}
+
 // Clear flushes all cached configs
 func (c *EndpointCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.items = make(map[string]*EndpointConfig)
+}
+
+// InvalidateAll clears all cached endpoints
+func (c *EndpointCache) InvalidateAll() {
+	c.Clear()
+}
+
+// Size returns number of cached entries
+func (c *EndpointCache) Size() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.items)
 }
 
 // StartCleanupRoutine periodically removes expired entries
@@ -129,5 +170,9 @@ func (c *EndpointCache) cleanup() {
 
 // Stop stops the background cleanup routine
 func (c *EndpointCache) Stop() {
-	close(c.stopCh)
+	select {
+	case <-c.stopCh:
+	default:
+		close(c.stopCh)
+	}
 }

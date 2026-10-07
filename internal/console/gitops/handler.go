@@ -16,14 +16,25 @@ import (
 type Handler struct {
 	registry  *registry.Registry
 	publisher *publisher.RedisPublisher
+	engine    *DeclarativeEngine
 }
 
 // NewHandler creates a new GitOps handler
 func NewHandler(reg *registry.Registry, pub *publisher.RedisPublisher) *Handler {
+	var eng *DeclarativeEngine
+	if reg != nil {
+		eng = NewDeclarativeEngine(reg.DB(), reg.DBType(), pub)
+	}
 	return &Handler{
 		registry:  reg,
 		publisher: pub,
+		engine:    eng,
 	}
+}
+
+// SetEngine overrides or configures the declarative engine
+func (h *Handler) SetEngine(engine *DeclarativeEngine) {
+	h.engine = engine
 }
 
 // Export exports complete declarative metadata snapshot in YAML format
@@ -236,32 +247,39 @@ func (h *Handler) Import(w http.ResponseWriter, r *http.Request) {
 	var snapshot MetadataSnapshot
 	if r.Header.Get("Content-Type") == "application/json" {
 		if err := json.NewDecoder(r.Body).Decode(&snapshot); err != nil {
-			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid JSON payload")
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid JSON payload: "+err.Error())
 			return
 		}
 	} else {
 		if err := yaml.NewDecoder(r.Body).Decode(&snapshot); err != nil {
-			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid YAML payload")
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid YAML payload: "+err.Error())
 			return
 		}
 	}
 
-	// Trigger broadcast to Data Plane to invalidate caches
-	if h.publisher != nil {
-		_ = h.publisher.PublishEndpointChanged("BULK_IMPORT", "", "")
+	if h.engine == nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Declarative state engine is not initialized")
+		return
+	}
+
+	result, err := h.engine.Ingest(r.Context(), &snapshot)
+	if err != nil {
+		if valErr, ok := err.(*ValidationError); ok {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, map[string]interface{}{
+				"error":      valErr.Error(),
+				"entity":     valErr.Entity,
+				"identifier": valErr.Identifier,
+				"reason":     valErr.Reason,
+			})
+			return
+		}
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to apply declarative configuration: "+err.Error())
+		return
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  true,
-		"message": "Metadata import parsed successfully",
-		"stats": map[string]int{
-			"groups":      len(snapshot.Groups),
-			"services":    len(snapshot.Services),
-			"upstreams":   len(snapshot.Upstreams),
-			"consumers":   len(snapshot.Consumers),
-			"connections": len(snapshot.Connections),
-			"queries":     len(snapshot.Queries),
-			"endpoints":   len(snapshot.Endpoints),
-		},
+		"message": "Declarative metadata imported and committed atomically",
+		"stats":   result,
 	})
 }

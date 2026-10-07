@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/apirout/apirout/internal/console/auth"
-	"github.com/apirout/apirout/internal/console/cache"
-	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/console/registry"
+	"github.com/apirout/apirout/internal/core/cache"
+	"github.com/apirout/apirout/internal/core/httputil"
 
 	"github.com/gorilla/mux"
 )

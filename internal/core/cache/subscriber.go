@@ -16,15 +16,27 @@ type RedisSubscriber struct {
 	client         *redis.Client
 	bus            eventbus.EventBus
 	endpointCache  *EndpointCache
-	connectionPool *ConnectionPool
-	countCache     *CountCache
-	logger         *slog.Logger
-	stopCh         chan struct{}
+	connectionPool *ManagedConnectionPool
+	countCache            *CountCache
+	logger                *slog.Logger
+	stopCh                chan struct{}
+	onRouteInvalidated    func()
+	onTargetHealthChanged func(targetID, action string)
+}
+
+// SetOnRouteInvalidated registers a callback invoked when route invalidation events occur
+func (s *RedisSubscriber) SetOnRouteInvalidated(fn func()) {
+	s.onRouteInvalidated = fn
+}
+
+// SetOnTargetHealthChanged registers a callback invoked when target health state transitions occur
+func (s *RedisSubscriber) SetOnTargetHealthChanged(fn func(targetID, action string)) {
+	s.onTargetHealthChanged = fn
 }
 
 // NewRedisSubscriber creates a new Redis subscriber instance
 func NewRedisSubscriber(redisURL, redisHost, redisPort, redisPassword string,
-	epCache *EndpointCache, connPool *ConnectionPool, countCache *CountCache,
+	epCache *EndpointCache, connPool *ManagedConnectionPool, countCache *CountCache,
 	logger *slog.Logger) *RedisSubscriber {
 
 	var rdb *redis.Client
@@ -61,7 +73,7 @@ func NewRedisSubscriber(redisURL, redisHost, redisPort, redisPassword string,
 }
 
 // NewSubscriberWithBus creates a subscriber backed by an explicit EventBus (ideal for testing)
-func NewSubscriberWithBus(bus eventbus.EventBus, epCache *EndpointCache, connPool *ConnectionPool, countCache *CountCache, logger *slog.Logger) *RedisSubscriber {
+func NewSubscriberWithBus(bus eventbus.EventBus, epCache *EndpointCache, connPool *ManagedConnectionPool, countCache *CountCache, logger *slog.Logger) *RedisSubscriber {
 	return &RedisSubscriber{
 		bus:            bus,
 		endpointCache:  epCache,
@@ -148,6 +160,9 @@ func (s *RedisSubscriber) handleMessage(msg *redis.Message) {
 			s.endpointCache.InvalidateByEndpointID(evt.EndpointID)
 			s.countCache.Invalidate(evt.EndpointID)
 		}
+		if s.onRouteInvalidated != nil {
+			s.onRouteInvalidated()
+		}
 
 	case events.ChannelConnectionEvents:
 		evt, err := events.DecodeConnectionInvalidateEvent([]byte(msg.Payload))
@@ -180,26 +195,43 @@ func (s *RedisSubscriber) HandleInvalidationEvent(evt eventbus.InvalidationEvent
 			s.endpointCache.Clear()
 			s.countCache.Clear()
 		}
+		if s.onRouteInvalidated != nil {
+			s.onRouteInvalidated()
+		}
 	case eventbus.EntityConnection:
 		if evt.EntityID != "" && evt.EntityID != "*" {
 			s.connectionPool.Invalidate(evt.EntityID)
 		} else {
 			s.connectionPool.InvalidateAll()
 		}
+	case eventbus.EntityTarget:
+		if s.onTargetHealthChanged != nil {
+			s.onTargetHealthChanged(evt.EntityID, string(evt.Action))
+		}
 	case eventbus.EntityAll:
 		s.endpointCache.Clear()
 		s.countCache.Clear()
 		s.connectionPool.InvalidateAll()
+		if s.onRouteInvalidated != nil {
+			s.onRouteInvalidated()
+		}
 	default:
 		// For services, upstreams, plugins, flush cached endpoints
 		s.endpointCache.Clear()
 		s.countCache.Clear()
+		if s.onRouteInvalidated != nil {
+			s.onRouteInvalidated()
+		}
 	}
 }
 
 // Stop terminates the subscriber
 func (s *RedisSubscriber) Stop() {
-	close(s.stopCh)
+	select {
+	case <-s.stopCh:
+	default:
+		close(s.stopCh)
+	}
 	if s.bus != nil {
 		_ = s.bus.Close()
 	}

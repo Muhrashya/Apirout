@@ -59,3 +59,15 @@ A transient bootstrap phase active exclusively when zero accounts with the Super
 ### Master Admin Secret
 A high-entropy shared secret header (`X-Apirout-Admin-Secret`) that bypasses interactive cookie/token authentication for headless operations, CI/CD pipelines, and automated health probes. In production environments, it is strictly validated against default placeholders and minimum length constraints.
 
+### Declarative State Engine
+A centralized control-plane module that ingests full declarative configuration specifications (YAML/JSON) and applies them atomically across all platform entities (groups, services, upstreams, targets, consumers, queries, routes) in a single database transaction.
+
+### Radix Router
+The in-memory, prefix-tree route matching module operating at the Data Plane ingress seam that resolves incoming HTTP paths to routes with sub-millisecond lookup, updated via EventBus invalidation sync with atomic pointer swapping.
+
+### Managed Connection Pool
+The centralized database connection lifecycle module in `internal/core/` that encapsulates database driver pooling, SSH bastion port forwarding, and socket teardown behind a single connection acquisition interface.
+
+### Passive Circuit Breaker
+An edge-local upstream resilience mechanism within the Data Plane that temporarily isolates failing targets upon reaching consecutive error thresholds and probes recovery in a half-open state, complementing active control-plane health checking.
+
