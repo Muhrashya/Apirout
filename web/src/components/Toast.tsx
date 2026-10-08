@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import './Toast.css';
 
@@ -22,9 +22,20 @@ const ToastContext = createContext<ToastContextType | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
     const [toasts, setToasts] = useState<Toast[]>([]);
+    const recentDispatches = useRef<Map<string, number>>(new Map());
 
     const showToast = useCallback((type: ToastType, message: string) => {
-        const id = Date.now().toString();
+        const key = `${type}:${message}`;
+        const now = Date.now();
+        const lastTime = recentDispatches.current.get(key) || 0;
+
+        // 1,000ms window debounce: suppress identical toast pills dispatched within 1 second
+        if (now - lastTime < 1000) {
+            return;
+        }
+        recentDispatches.current.set(key, now);
+
+        const id = `${now}-${Math.random().toString(36).substring(2, 7)}`;
         setToasts((prev) => [...prev, { id, type, message }]);
 
         setTimeout(() => {

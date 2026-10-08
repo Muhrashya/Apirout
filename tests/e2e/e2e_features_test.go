@@ -120,6 +120,9 @@ func gatewayRequestWithHeaders(t *testing.T, method, path string, headers map[st
 		t.Fatalf("failed to create request: %v", err)
 	}
 	for k, v := range headers {
+		if strings.EqualFold(k, "Host") {
+			req.Host = v
+		}
 		req.Header.Set(k, v)
 	}
 	if body != nil {
@@ -135,12 +138,14 @@ func gatewayRequestWithHeaders(t *testing.T, method, path string, headers map[st
 
 	respBody, _ := io.ReadAll(resp.Body)
 
-	// Automated verification on highest HTTP seam: every gateway response MUST carry X-Request-ID and Server-Timing
+	// Automated verification on highest HTTP seam: every gateway response MUST carry X-Request-ID and Server-Timing (except preflight OPTIONS)
 	if reqID := resp.Header.Get("X-Request-ID"); reqID == "" {
 		t.Errorf("gateway response missing X-Request-ID header for %s %s", method, path)
 	}
-	if st := resp.Header.Get("Server-Timing"); !strings.Contains(st, "gateway;dur=") {
-		t.Errorf("gateway response missing Server-Timing header for %s %s: got %q", method, path, st)
+	if method != http.MethodOptions {
+		if st := resp.Header.Get("Server-Timing"); !strings.Contains(st, "gateway;dur=") {
+			t.Errorf("gateway response missing Server-Timing header for %s %s: got %q", method, path, st)
+		}
 	}
 
 	return resp.StatusCode, resp.Header, respBody

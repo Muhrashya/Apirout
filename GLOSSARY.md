@@ -89,4 +89,8 @@ Fine-grained, per-endpoint Cross-Origin Resource Sharing headers (`endpoints.cor
 ### Staged Plugin Pipeline
 A form-level lifecycle pattern in the management console where gateway plugins are drafted, configured, and staged in local state, committing to the control plane and live Data Plane only upon explicit manual form submission ("Save" / "Update"), preventing accidental runtime mutations.
 
+### Multi-Plugin Logical OR
+Gateway authentication lifecycle semantics where multiple heterogeneous authentication plugins attached to the same entity (route or service) are evaluated sequentially using Logical OR semantics; incoming client requests are authorized as soon as any active plugin successfully validates client credentials (first match wins).
 
+### Modal Event Isolation
+A UI boundary pattern ensuring interactive modal dialog actions, clicks, and form submissions do not bubble synthetic events to outer parent forms or trigger unintended validation cycles.

@@ -193,8 +193,11 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
         }
     };
 
-    const handleCreatePlugin = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleCreatePlugin = async (e?: React.FormEvent | React.MouseEvent) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         try {
             const configObj = buildConfigObject();
 
@@ -430,6 +433,27 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                 </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {/* Multi-Plugin Logical OR Informational Banner */}
+                    {currentPlugins.filter(p => p._stagedState !== 'deleted').length >= 2 && (
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            padding: '10px 14px',
+                            backgroundColor: '#eff6ff',
+                            border: '1px solid #bfdbfe',
+                            borderRadius: '8px',
+                            color: '#1e40af',
+                            fontSize: '12.5px',
+                            fontWeight: 500,
+                            lineHeight: 1.4
+                        }}>
+                            <span style={{ fontSize: '15px' }}>ℹ️</span>
+                            <span>
+                                <strong>Multi-Plugin Logical OR:</strong> Requests are granted access if any attached plugin successfully authenticates the client (first match wins).
+                            </span>
+                        </div>
+                    )}
                     {currentPlugins.map(p => {
                         let parsedConfig: any = {};
                         try {
@@ -651,7 +675,7 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                     onClose={() => setIsAddModalOpen(false)}
                     title={`Attach Inbound Auth Plugin to ${scope.toUpperCase()}`}
                 >
-                    <form onSubmit={handleCreatePlugin}>
+                    <form onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleCreatePlugin(e); }}>
                         <div style={{ marginBottom: '16px' }}>
                             <label className="label">Plugin Type</label>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginTop: '6px' }}>
@@ -838,8 +862,13 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                 Cancel
                             </button>
                             <button
-                                type="submit"
+                                type="button"
                                 className="btn-header-new-route"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleCreatePlugin(e);
+                                }}
                             >
                                 {isStaged ? 'Stage Plugin' : 'Attach Plugin'}
                             </button>
