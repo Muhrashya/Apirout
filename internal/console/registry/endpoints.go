@@ -208,7 +208,13 @@ func (r *Registry) CreateEndpoint(endpoint *Endpoint) error {
 		endpoint.AllowedDomains, endpoint.AllowedIPs, endpoint.CorsOrigins, endpoint.Description,
 		endpoint.CreatedByUserID, endpoint.CreatedAt, endpoint.UpdatedAt,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if r.publisher != nil {
+		_ = r.publisher.PublishEndpointChanged("CREATE", endpoint.ID, endpoint.Path)
+	}
+	return nil
 }
 
 // UpdateEndpoint updates an endpoint
@@ -247,13 +253,29 @@ func (r *Registry) UpdateEndpoint(endpoint *Endpoint) error {
 		endpoint.AllowedDomains, endpoint.AllowedIPs, endpoint.CorsOrigins, endpoint.Description,
 		endpoint.UpdatedAt, endpoint.ID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if r.publisher != nil {
+		_ = r.publisher.PublishEndpointChanged("UPDATE", endpoint.ID, endpoint.Path)
+	}
+	return nil
 }
 
 // DeleteEndpoint deletes an endpoint
 func (r *Registry) DeleteEndpoint(id string) error {
+	var path string
+	if ep, _ := r.GetEndpointByID(id); ep != nil {
+		path = ep.Path
+	}
 	_, err := r.db.Exec(r.db.Rebind("DELETE FROM endpoints WHERE id = ?"), id)
-	return err
+	if err != nil {
+		return err
+	}
+	if r.publisher != nil {
+		_ = r.publisher.PublishEndpointChanged("DELETE", id, path)
+	}
+	return nil
 }
 
 // ListEnabledEndpoints returns all enabled endpoints

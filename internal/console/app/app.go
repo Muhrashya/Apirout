@@ -51,6 +51,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 
 	// Redis Publisher
 	pub := publisher.NewRedisPublisher(cfg.RedisURL, cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword, logger)
+	reg.SetPublisher(pub)
 
 	authService := auth.NewService(cfg.JWTSecret, reg, int(cfg.JWTTTL.Minutes()), cfg.AdminSecret)
 	executorService := executor.NewService(reg, cfg.EncryptionKey)

@@ -28,10 +28,29 @@ type DBConfig struct {
 	DataDir  string // for sqlite only
 }
 
+// Publisher defines the invalidation event emitter interface for control-plane mutations
+type Publisher interface {
+	PublishEndpointChanged(action, endpointID, path string) error
+	PublishConnectionChanged(action, connectionID string) error
+	PublishTargetHealthChanged(targetID, healthStatus string) error
+	PublishBulkConfigUpdated() error
+}
+
 // Registry manages the database for app state
 type Registry struct {
-	db     *sqlx.DB
-	dbType string
+	db        *sqlx.DB
+	dbType    string
+	publisher Publisher
+}
+
+// SetPublisher assigns the event publisher for automated cache invalidation on persistence
+func (r *Registry) SetPublisher(pub Publisher) {
+	r.publisher = pub
+}
+
+// GetPublisher returns the configured event publisher, if any
+func (r *Registry) GetPublisher() Publisher {
+	return r.publisher
 }
 
 // New creates a new Registry instance with configurable database backend

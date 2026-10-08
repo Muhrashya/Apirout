@@ -104,13 +104,13 @@ export default function Domains() {
             <div className="overview-breadcrumb">
                 <span>Console Settings</span>
                 <span className="breadcrumb-sep">/</span>
-                <span className="breadcrumb-curr">Domains &amp; Routing</span>
+                <span className="breadcrumb-curr">Gateway Domains</span>
             </div>
 
             {/* Page Header */}
             <div className="overview-header">
                 <div className="overview-title-col">
-                    <h1 className="overview-title">Domains &amp; Host Routing</h1>
+                    <h1 className="overview-title">Gateway Domains</h1>
                     <p className="overview-subtitle">
                         Configure custom hostnames, host header routing rules, and edge ingress bindings for Gateway traffic.
                     </p>

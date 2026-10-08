@@ -93,7 +93,13 @@ func (r *Registry) CreateAuthPlugin(plugin *models.AuthPluginConfig) error {
 		plugin.Config, plugin.Enabled,
 		plugin.CreatedAt, plugin.UpdatedAt,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if r.publisher != nil {
+		_ = r.publisher.PublishBulkConfigUpdated()
+	}
+	return nil
 }
 
 // UpdateAuthPlugin updates an existing auth plugin configuration
@@ -112,13 +118,25 @@ func (r *Registry) UpdateAuthPlugin(plugin *models.AuthPluginConfig) error {
 		plugin.Config, plugin.Enabled, plugin.UpdatedAt,
 		plugin.ID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if r.publisher != nil {
+		_ = r.publisher.PublishBulkConfigUpdated()
+	}
+	return nil
 }
 
 // DeleteAuthPlugin deletes an auth plugin by ID
 func (r *Registry) DeleteAuthPlugin(id string) error {
 	_, err := r.db.Exec(r.db.Rebind("DELETE FROM auth_plugin_configs WHERE id = ?"), id)
-	return err
+	if err != nil {
+		return err
+	}
+	if r.publisher != nil {
+		_ = r.publisher.PublishBulkConfigUpdated()
+	}
+	return nil
 }
 
 // GetAuthPluginsByRouteID returns all auth plugins for a specific route

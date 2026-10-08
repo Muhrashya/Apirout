@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Role defines the operation mode for Apirout (Kong Gateway & Hasura style)
+// Role defines the operation mode for Apirout
 type Role string
 
 const (
@@ -24,7 +24,7 @@ const (
 type Config struct {
 	Role               Role
 	AppEnv             string
-	// Kong-style Dedicated Multi-Port Architecture:
+	// Dedicated Multi-Port Architecture:
 	// ProxyPort (:8000)   -> Public API Gateway traffic (/api/*, instant CRUD)
 	// AdminPort (:8001)   -> Internal Admin/Management REST API (/api/v1/*)
 	// GUIPort (:8002)     -> Web Console UI (Vite SPA)
@@ -74,7 +74,7 @@ type Config struct {
 
 // Load loads unified configuration from environment variables
 func Load() (*Config, error) {
-	roleRaw := strings.ToLower(getEnvAny("ROLE", "APIROUT_ROLE", "KONG_ROLE", "traditional"))
+	roleRaw := strings.ToLower(getEnvAny("ROLE", "APIROUT_ROLE", "traditional"))
 	var role Role
 	switch roleRaw {
 	case "control_plane", "control-plane", "cp", "console":

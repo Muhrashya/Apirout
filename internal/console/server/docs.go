@@ -2,13 +2,13 @@ package server
 
 import (
 	"net/http"
-
 	"strings"
 
-	"github.com/apirout/apirout/internal/core/httputil"
+	"github.com/apirout/apirout/internal/console/auth"
 	"github.com/apirout/apirout/internal/console/openapi"
 	"github.com/apirout/apirout/internal/console/postman"
 	"github.com/apirout/apirout/internal/console/registry"
+	"github.com/apirout/apirout/internal/core/httputil"
 )
 
 // DocsHandler handles API documentation
@@ -29,8 +29,12 @@ func NewDocsHandler(openapiSvc *openapi.Service, postmanSvc *postman.Service, re
 
 // OpenAPI returns OpenAPI specification
 func (h *DocsHandler) OpenAPI(w http.ResponseWriter, r *http.Request) {
-	// TODO: Get group IDs from user context for RBAC filtering
-	// TODO: Get group IDs from user context for RBAC filtering
+	var groupIDs []string
+	if claims := auth.GetUserFromContext(r.Context()); claims != nil && claims.Role != "SUPER_ADMIN" {
+		if gIDs, err := h.registry.GetUserGroupIDs(claims.UserID); err == nil {
+			groupIDs = gIDs
+		}
+	}
 	
 	var endpointIDs []string
 	if ids := r.URL.Query().Get("endpoint_ids"); ids != "" {
@@ -50,7 +54,7 @@ func (h *DocsHandler) OpenAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	spec := h.openapiService.GenerateSpec(nil, endpointIDs)
+	spec := h.openapiService.GenerateSpec(groupIDs, endpointIDs)
 	httputil.WriteJSON(w, http.StatusOK, spec)
 }
 
@@ -61,8 +65,12 @@ func (h *DocsHandler) Postman(w http.ResponseWriter, r *http.Request) {
 		baseURL = "https://api.apirout.io"
 	}
 
-	// TODO: Get group IDs from user context for RBAC filtering
-	// TODO: Get group IDs from user context for RBAC filtering
+	var groupIDs []string
+	if claims := auth.GetUserFromContext(r.Context()); claims != nil && claims.Role != "SUPER_ADMIN" {
+		if gIDs, err := h.registry.GetUserGroupIDs(claims.UserID); err == nil {
+			groupIDs = gIDs
+		}
+	}
 
 	var endpointIDs []string
 	if ids := r.URL.Query().Get("endpoint_ids"); ids != "" {
@@ -82,6 +90,7 @@ func (h *DocsHandler) Postman(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
-	collection := h.postmanService.GenerateCollection(nil, endpointIDs, baseURL)
+	collection := h.postmanService.GenerateCollection(groupIDs, endpointIDs, baseURL)
 	httputil.WriteJSON(w, http.StatusOK, collection)
 }
+

@@ -52,7 +52,7 @@ export default function DomainFormPage() {
                 <span>Console Settings</span>
                 <span className="breadcrumb-sep">/</span>
                 <Link to="/settings/domains" style={{ color: '#2563eb', textDecoration: 'none' }}>
-                    Domains &amp; Routing
+                    Gateway Domains
                 </Link>
                 <span className="breadcrumb-sep">/</span>
                 <span className="breadcrumb-curr">Register Domain</span>

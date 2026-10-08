@@ -14,12 +14,12 @@ import (
 
 	"errors"
 	"github.com/apirout/apirout/internal/core/httputil"
-	"github.com/apirout/apirout/internal/core/iputil"
 	"github.com/apirout/apirout/internal/core/models"
 	"github.com/apirout/apirout/internal/core/router"
 	"github.com/apirout/apirout/internal/core/upstream"
 	"github.com/apirout/apirout/internal/gateway/apiclientauth"
 	"github.com/apirout/apirout/internal/gateway/auth"
+	"github.com/apirout/apirout/internal/gateway/pipeline"
 	"github.com/apirout/apirout/internal/gateway/registry"
 	"github.com/apirout/apirout/internal/gateway/responder"
 	"github.com/google/uuid"
@@ -42,6 +42,8 @@ type Handler struct {
 	proxyTransports  sync.Map // serviceID -> *http.Transport
 	router           atomic.Pointer[router.RadixRouter]
 	circuitBreaker   *upstream.PassiveCircuitBreaker
+	pipeline         *pipeline.Pipeline
+	telemetry        *telemetryStage
 }
 
 // NewHandler creates a new dynamic API handler
@@ -56,6 +58,13 @@ func NewHandler(executor *Service, reader *registry.Reader, apiClientAuth *apicl
 		rateLimiter:      newTokenBucketLimiter(),
 		circuitBreaker:   upstream.NewPassiveCircuitBreaker(3, 15*time.Second),
 	}
+
+	h.telemetry = newTelemetryStage(h)
+	h.pipeline = pipeline.New(
+		newIngressStage(h),
+		newAuthStage(h),
+		newUpstreamStage(h),
+	)
 
 	// Preload in-memory Radix router from active endpoints at boot
 	r := router.NewRadixRouter()
@@ -112,40 +121,6 @@ func (h *Handler) OnTargetHealthChanged(targetID, action string) {
 	}
 }
 
-func extractTokenOrKey(r *http.Request) (token string, apiKey string) {
-	// 1. Direct API Key header
-	if key := r.Header.Get("X-API-Key"); key != "" {
-		return "", key
-	}
-
-	// 2. Query param ?api_key=...
-	if key := r.URL.Query().Get("api_key"); key != "" {
-		return "", key
-	}
-
-	// 3. Authorization header: Bearer ak_... OR Bearer <jwt>
-	authHeader := r.Header.Get("Authorization")
-	if authHeader != "" {
-		parts := strings.Split(authHeader, " ")
-		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-			bearerVal := parts[1]
-			if strings.HasPrefix(bearerVal, "ak_") {
-				return "", bearerVal
-			}
-			return bearerVal, ""
-		}
-	}
-
-	// 4. Legacy X-API-Token
-	if apiTokenHeader := r.Header.Get("X-API-Token"); apiTokenHeader != "" {
-		if strings.HasPrefix(apiTokenHeader, "ak_") {
-			return "", apiTokenHeader
-		}
-		return apiTokenHeader, ""
-	}
-
-	return "", ""
-}
 
 type statusRecorder struct {
 	http.ResponseWriter
@@ -322,471 +297,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Execute(w, r)
 }
 
-// Execute handles dynamic request matching and routing through Kong architectural flow:
-// Request -> Route -> Consumer Auth -> Consumer Authz -> Service -> [Direct Host OR Upstream -> Target OR Database Query/Instant CRUD]
+// Execute handles dynamic request matching and routing through the Execution Pipeline
 func (h *Handler) Execute(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	path := r.URL.Path
-	method := r.Method
+	pCtx := pipeline.NewContext(w, r)
+	defer h.telemetry.Finish(pCtx)
 
-	rec := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
-	var upstreamDurationMs int = 0
-
-	var endpointID *string
-	var apiClientID *string
-	var userID *string
-	var statusCode = http.StatusOK
-	var success = true
-	var errorMsg *string
-	var routeName = ""
-	var serviceName = ""
-	var upstreamURI = ""
-	var authType = "none"
-	clientIP := httputil.GetClientIP(r)
-
-	defer func() {
-		dur := int(time.Since(start).Milliseconds())
-		if rec.statusCode != 0 {
-			statusCode = rec.statusCode
-		}
-		if statusCode >= 400 {
-			success = false
-		}
-		upLatency := upstreamDurationMs
-		gwLatency := dur - upLatency
-		if gwLatency < 0 {
-			gwLatency = 0
-		}
-		respSize := r.ContentLength
-		if rec.bytesWritten > 0 {
-			respSize = rec.bytesWritten
-		}
-
-		details, _ := json.Marshal(map[string]interface{}{
-			"method":              method,
-			"path":                path,
-			"status":              statusCode,
-			"status_code":         statusCode,
-			"client_ip":           clientIP,
-			"user_agent":          r.UserAgent(),
-			"host":                r.Host,
-			"size":                respSize,
-			"route_name":          routeName,
-			"service_name":        serviceName,
-			"upstream_uri":        upstreamURI,
-			"auth_type":           authType,
-			"gateway_latency_ms":  gwLatency,
-			"upstream_latency_ms": upLatency,
-		})
-
-		if h.reader != nil {
-			go func() {
-				_ = h.reader.CreateAuditLog(&models.AuditLog{
-					ID:           fmtID(),
-					EventType:    "api_request",
-					UserID:       userID,
-					APIClientID:  apiClientID,
-					EndpointID:   endpointID,
-					IPAddress:    &clientIP,
-					Details:      string(details),
-					DurationMs:   &dur,
-					Success:      success,
-					ErrorMessage: errorMsg,
-					Timestamp:    start,
-				})
-			}()
-		}
-	}()
-
-	if !strings.HasPrefix(path, "/api/") {
-		statusCode = http.StatusNotFound
-		success = false
-		responder.Error(rec, r, http.StatusNotFound, responder.ErrCodeRouteNotFound, "Not found")
-		return
-	}
-
-	// 1. In-Memory Radix Route Matcher (<1ms)
-	var endpoint *models.Endpoint
-	var pathParams map[string]string
-	curRouter := h.router.Load()
-	if curRouter != nil {
-		res, matchErr := curRouter.Match(path, r.Method)
-		if matchErr == nil && res != nil {
-			endpoint = res.Endpoint
-			pathParams = res.Params
-		} else if errors.Is(matchErr, router.ErrMethodNotAllowed) {
-			statusCode = http.StatusMethodNotAllowed
-			success = false
-			errStr := "Method not allowed"
-			errorMsg = &errStr
-			extra := make(map[string]string)
-			if len(res.AllowedMethods) > 0 {
-				extra["Allow"] = strings.Join(res.AllowedMethods, ", ")
-			}
-			responder.Error(rec, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, errStr, extra)
-			return
-		}
-	}
-
-	// Fallback to registry reader if route not found in in-memory tree
-	if endpoint == nil && h.reader != nil {
-		ep, err := h.reader.GetEndpointByPath(path)
-		if err != nil {
-			statusCode = http.StatusInternalServerError
-			success = false
-			errStr := "Database error"
-			errorMsg = &errStr
-			responder.Error(rec, r, http.StatusInternalServerError, responder.ErrCodeInternalError, errStr)
-			return
-		}
-		endpoint = ep
-	}
-
-	if endpoint == nil {
-		statusCode = http.StatusNotFound
-		success = false
-		errStr := "Endpoint not found"
-		errorMsg = &errStr
-		responder.Error(rec, r, http.StatusNotFound, responder.ErrCodeRouteNotFound, errStr)
-		return
-	}
-
-	endpointID = &endpoint.ID
-	routeName = endpoint.Name
-	if endpoint.IsPublic {
-		authType = "public"
-	}
-
-	if !endpoint.Enabled {
-		statusCode = http.StatusNotFound
-		success = false
-		errStr := "Endpoint disabled"
-		errorMsg = &errStr
-		responder.Error(rec, r, http.StatusNotFound, responder.ErrCodeRouteNotFound, errStr)
-		return
-	}
-
-	// Match HTTP method (for fallback paths)
-	if endpoint.Method != "*" && endpoint.Method != "ALL" && endpoint.Method != "ANY" && endpoint.Method != "" && !strings.Contains(endpoint.Method, r.Method) {
-		statusCode = http.StatusMethodNotAllowed
-		success = false
-		errStr := "Method not allowed"
-		errorMsg = &errStr
-		responder.Error(rec, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, errStr, map[string]string{"Allow": endpoint.Method})
-		return
-	}
-
-	// Host-based / Domain Routing check
-	host := r.Host
-	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
-		host = xfh
-	}
-	if idx := strings.Index(host, ":"); idx != -1 {
-		host = host[:idx]
-	}
-
-	// 1. Gateway-level host validation against registered gateway domains
-	if !h.isGatewayHostAllowed(host) {
-		statusCode = http.StatusForbidden
-		success = false
-		errStr := fmt.Sprintf("Host '%s' is not registered on this gateway", host)
-		errorMsg = &errStr
-		responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, errStr)
-		return
-	}
-
-	// 2. Endpoint-level domain restriction check
-	if !isDomainAllowed(host, endpoint.AllowedDomains) {
-		statusCode = http.StatusForbidden
-		success = false
-		errStr := "Domain not authorized to access this endpoint"
-		errorMsg = &errStr
-		responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, errStr)
-		return
-	}
-
-	// Dynamic Route-Level CORS handling
-	reqOrigin := r.Header.Get("Origin")
-	if reqOrigin != "" && endpoint.CorsOrigins != "" && endpoint.CorsOrigins != "*" {
-		if isOriginAllowed(reqOrigin, endpoint.CorsOrigins) {
-			rec.Header().Set("Access-Control-Allow-Origin", reqOrigin)
-			rec.Header().Set("Vary", "Origin")
-			rec.Header().Set("Access-Control-Allow-Credentials", "true")
-		}
-	} else if endpoint.CorsOrigins == "*" {
-		rec.Header().Set("Access-Control-Allow-Origin", "*")
-	}
-
-	// Handle preflight OPTIONS request for endpoint
-	if r.Method == http.MethodOptions {
-		rec.Header().Set("Access-Control-Allow-Methods", endpoint.Method)
-		rec.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Admin-Secret, X-Request-ID, X-Correlation-ID")
-		rec.Header().Set("Access-Control-Max-Age", "86400")
-		rec.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	// Client IP Whitelist Check (CIDR / direct IP / wildcard)
-	if !iputil.IsIPAllowed(clientIP, endpoint.AllowedIPs) {
-		statusCode = http.StatusForbidden
-		success = false
-		errStr := "Client IP address forbidden for this endpoint"
-		errorMsg = &errStr
-		responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, errStr)
-		return
-	}
-
-	// 2. Consumer Authentication & Authorization Check
-	var session *SessionContext
-
-	if !endpoint.IsPublic {
-		var consumerID string
-		var groupID string
-		var authResolved bool
-
-		// 2a. Try new auth plugin engine first (if plugins are configured)
-		if h.authEngine != nil && h.authEngine.HasPlugins(endpoint.ID, endpoint.ServiceID) {
-			authResult, err := h.authEngine.Authenticate(r, endpoint, endpoint.ServiceID)
-			if err != nil {
-				statusCode = http.StatusUnauthorized
-				success = false
-				errStr := err.Error()
-				errorMsg = &errStr
-				responder.Error(rec, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, errStr)
-				return
-			}
-			if authResult != nil {
-				consumerID = authResult.ConsumerID
-				groupID = authResult.GroupID
-				authType = authResult.AuthType
-				authResolved = true
-			}
-		}
-
-		// 2b. Fallback to legacy auth if no plugin resolved the identity
-		if !authResolved {
-			jwtToken, rawAPIKey := extractTokenOrKey(r)
-
-			if rawAPIKey != "" {
-				// Authenticate using API Key credential
-				consumer, _, err := h.reader.ValidateAPIKey(rawAPIKey)
-				if err != nil {
-					statusCode = http.StatusUnauthorized
-					success = false
-					errStr := "Invalid API key: " + err.Error()
-					errorMsg = &errStr
-					responder.Error(rec, r, http.StatusUnauthorized, responder.ErrCodeInvalidKey, errStr)
-					return
-				}
-				consumerID = consumer.ID
-				authType = "key-auth"
-				if consumer.GroupID != nil {
-					groupID = *consumer.GroupID
-				}
-			} else if jwtToken != "" {
-				// Authenticate using JWT Bearer token
-				claims, err := h.apiClientAuth.ValidateToken(jwtToken)
-				if err != nil {
-					statusCode = http.StatusUnauthorized
-					success = false
-					errStr := "Invalid or expired token"
-					errorMsg = &errStr
-					responder.Error(rec, r, http.StatusUnauthorized, responder.ErrCodeExpiredToken, errStr)
-					return
-				}
-				consumerID = claims.APIClientID
-				groupID = claims.GroupID
-				authType = "jwt"
-			} else {
-				statusCode = http.StatusUnauthorized
-				success = false
-				errStr := "Authentication required (provide X-API-Key or Authorization Bearer token)"
-				errorMsg = &errStr
-				responder.Error(rec, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, errStr)
-				return
-			}
-		}
-
-		// Authorization Check: Verify Consumer has access to this Route
-		allowed, err := h.reader.IsAPIClientAllowedForEndpoint(consumerID, endpoint.ID)
-		if err != nil || !allowed {
-			statusCode = http.StatusForbidden
-			success = false
-			errStr := "Access to this endpoint is forbidden for consumer"
-			errorMsg = &errStr
-			responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, errStr)
-			return
-		}
-
-		apiClientID = &consumerID
-		session = &SessionContext{
-			SubjectID:   consumerID,
-			SubjectType: "api_client",
-			APIClientID: consumerID,
-			GroupID:     groupID,
-		}
-	}
-
-	// Rate Limiting Check
-	if endpoint.RateLimitEnabled && endpoint.RateLimitRPM > 0 {
-		rateKey := fmt.Sprintf("route:%s:ip:%s", endpoint.ID, clientIP)
-		if apiClientID != nil {
-			rateKey = fmt.Sprintf("route:%s:client:%s", endpoint.ID, *apiClientID)
-		}
-		if !h.rateLimiter.Allow(rateKey, endpoint.RateLimitRPM, endpoint.RateLimitBurst) {
-			statusCode = http.StatusTooManyRequests
-			success = false
-			errStr := "Route rate limit exceeded"
-			errorMsg = &errStr
-			responder.Error(rec, r, http.StatusTooManyRequests, responder.ErrCodeRateLimitExceeded, errStr, map[string]string{"Retry-After": "60"})
-			return
-		}
-	}
-
-	// Consumer Group Rate Limiting Check
-	if session != nil && session.GroupID != "" {
-		group, err := h.reader.GetConsumerGroupByID(session.GroupID)
-		if err == nil && group != nil && group.RateLimitRPM > 0 {
-			groupKey := fmt.Sprintf("group:%s:client:%s", session.GroupID, session.APIClientID)
-			if !h.rateLimiter.Allow(groupKey, group.RateLimitRPM, group.RateLimitBurst) {
-				statusCode = http.StatusTooManyRequests
-				success = false
-				errStr := "Consumer group rate limit exceeded"
-				errorMsg = &errStr
-				responder.Error(rec, r, http.StatusTooManyRequests, responder.ErrCodeRateLimitExceeded, errStr, map[string]string{"Retry-After": "60"})
-				return
-			}
-		}
-	}
-
-	// 3. Service Resolution & Gateway Execution
-	var outboundAuth *models.ServiceOutboundAuth
-	if endpoint.ServiceID != nil && *endpoint.ServiceID != "" {
-		service, err := h.reader.GetServiceByID(*endpoint.ServiceID)
-		if err == nil && service != nil && service.Enabled {
-			serviceName = service.Name
-
-			// Load outbound auth config for this service
-			outboundAuth, _ = h.reader.GetOutboundAuth(service.ID)
-
-			// Case A: Service routes to an Upstream pool (Load-balanced Targets)
-			if service.UpstreamID != nil && *service.UpstreamID != "" {
-				upstream, _ := h.reader.GetUpstreamByID(*service.UpstreamID)
-				targets, err := h.reader.GetHealthyTargetsByUpstreamID(*service.UpstreamID)
-				availableTargets := targets
-				if h.circuitBreaker != nil {
-					avail, _ := h.circuitBreaker.FilterAvailable(targets)
-					availableTargets = avail
-				}
-				if err != nil || len(availableTargets) == 0 {
-					statusCode = http.StatusServiceUnavailable
-					success = false
-					errStr := "no healthy upstream targets available"
-					errorMsg = &errStr
-					responder.Error(rec, r, http.StatusServiceUnavailable, responder.ErrCodeNoHealthyTargets, errStr)
-					return
-				}
-
-				algorithm := "round-robin"
-				if upstream != nil && upstream.Algorithm != "" {
-					algorithm = upstream.Algorithm
-				}
-				target := selectTarget(availableTargets, algorithm, clientIP, r, *service.UpstreamID)
-				if target != nil {
-					upstreamURI = fmt.Sprintf("%s://%s:%d%s", service.Protocol, target.Host, target.Port, service.Path)
-					releaseConn := trackTargetConn(target.ID)
-					defer releaseConn()
-					h.reverseProxyRequest(rec, r, endpoint, service, target.Host, target.Port, target.ID, outboundAuth, &upstreamDurationMs)
-					return
-				}
-			}
-
-			// Case B: Service points directly to a backend host/port
-			if service.Host != "" && service.Protocol != "database" {
-				upstreamURI = fmt.Sprintf("%s://%s:%d%s", service.Protocol, service.Host, service.Port, service.Path)
-				h.reverseProxyRequest(rec, r, endpoint, service, service.Host, service.Port, "", outboundAuth, &upstreamDurationMs)
-				return
-			}
-
-			// Case C: Service routes to a Database Connection (Instant REST CRUD or SQL API)
-			if (service.ConnectionID != nil && *service.ConnectionID != "") || service.Protocol == "database" {
-				connID := ""
-				if service.ConnectionID != nil {
-					connID = *service.ConnectionID
-				}
-				if connID == "" {
-					connID = service.ID
-				}
-				upstreamURI = fmt.Sprintf("database://%s/%s", connID, service.Path)
-
-				// C1: If route has an explicit SQL query attached, execute that query
-				if endpoint.QueryID != nil && *endpoint.QueryID != "" {
-					params := parseParams(r)
-					for k, v := range pathParams {
-						params[k] = v
-					}
-					upStart := time.Now()
-					result, err := h.executor.ExecuteEndpointByPath(path, params, session)
-					upstreamDurationMs = int(time.Since(upStart).Milliseconds())
-					if err != nil {
-						statusCode = http.StatusInternalServerError
-						success = false
-						errStr := err.Error()
-						errorMsg = &errStr
-						responder.Error(rec, r, http.StatusInternalServerError, responder.ErrCodeInternalError, errStr)
-						return
-					}
-					responder.JSON(rec, r, http.StatusOK, result)
-					return
-				}
-
-				// C2: Route performs Instant REST table CRUD on the connected database
-				if h.instantHandler != nil {
-					table, id := extractTableAndID(endpoint.Path, r.URL.Path, service.Path)
-					upStart := time.Now()
-					h.instantHandler.ExecuteTableCRUD(rec, r, connID, table, id)
-					upstreamDurationMs = int(time.Since(upStart).Milliseconds())
-					statusCode = rec.statusCode
-					if statusCode >= 400 {
-						success = false
-					}
-					return
-				}
-			}
-		}
-	}
-
-	// Case D: Endpoint with QueryID but no Service (Standalone SQL Query)
-	if endpoint.QueryID != nil && *endpoint.QueryID != "" {
-		if serviceName == "" {
-			serviceName = "Standalone SQL Query"
-			upstreamURI = "internal://sql-engine"
-		}
-		params := parseParams(r)
-		for k, v := range pathParams {
-			params[k] = v
-		}
-		upStart := time.Now()
-		result, err := h.executor.ExecuteEndpointByPath(path, params, session)
-		upstreamDurationMs = int(time.Since(upStart).Milliseconds())
-		if err != nil {
-			statusCode = http.StatusInternalServerError
-			success = false
-			errStr := err.Error()
-			errorMsg = &errStr
-			responder.Error(rec, r, http.StatusInternalServerError, responder.ErrCodeInternalError, errStr)
-			return
-		}
-		responder.JSON(rec, r, http.StatusOK, result)
-		return
-	}
-
-	// Case E: Route has neither a valid Service nor a Query
-	statusCode = http.StatusBadRequest
-	success = false
-	errStr := "Route is not configured with an active Service backend, Database connection, or SQL query"
-	errorMsg = &errStr
-	responder.Error(rec, r, http.StatusBadRequest, responder.ErrCodeBadRequest, errStr)
+	_ = h.pipeline.Execute(pCtx)
 }
 
 // getTransport retrieves or creates an HTTP transport with connection pooling and configurable timeouts for the backend service

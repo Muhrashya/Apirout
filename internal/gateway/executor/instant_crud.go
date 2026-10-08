@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/apirout/apirout/internal/core/crypto"
 	"github.com/apirout/apirout/internal/gateway/apiclientauth"
+	"github.com/apirout/apirout/internal/gateway/auth"
 	"github.com/apirout/apirout/internal/core/cache"
 	"github.com/apirout/apirout/internal/core/introspection"
 	"github.com/apirout/apirout/internal/core/sqldialect"
@@ -61,7 +62,7 @@ func (h *InstantCRUDHandler) AuthenticateRequest(r *http.Request) error {
 	}
 
 	// 2. Check API Key
-	token, apiKey := extractTokenOrKey(r)
+	token, apiKey := auth.ExtractTokenOrKey(r)
 	if apiKey != "" {
 		consumer, _, err := h.reader.ValidateAPIKey(apiKey)
 		if err == nil && consumer != nil {

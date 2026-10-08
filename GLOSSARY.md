@@ -94,3 +94,9 @@ Gateway authentication lifecycle semantics where multiple heterogeneous authenti
 
 ### Modal Event Isolation
 A UI boundary pattern ensuring interactive modal dialog actions, clicks, and form submissions do not bubble synthetic events to outer parent forms or trigger unintended validation cycles.
+
+### Execution Pipeline
+An ordered multi-stage gateway execution module (`internal/gateway/pipeline/`) operating at the Data Plane ingress seam that decomposes request lifecycle processing into discrete stages (Ingress, Routing & Auth, Upstream, Telemetry) evaluated through a strongly-typed `pipeline.Context`.
+
+### Evented Registry
+A decorated storage seam adapter (`internal/console/registry/evented_registry.go`) wrapping control-plane persistence operations with synchronous domain event publishing across the EventBus, ensuring persistence and Data Plane cache synchronization are indivisible.

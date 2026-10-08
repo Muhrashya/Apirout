@@ -205,7 +205,7 @@ export default function AppLayout() {
                                                 <li>
                                                     <NavLink to="/settings/domains" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
                                                         <span className="nav-icon"><IconCloud width={18} height={18} /></span>
-                                                        <span className="nav-label">Domains &amp; TLS</span>
+                                                        <span className="nav-label">Gateway Domains</span>
                                                     </NavLink>
                                                 </li>
                                             )}
