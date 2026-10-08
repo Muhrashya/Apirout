@@ -298,7 +298,7 @@ Apirout provides built-in runtime telemetry and audit logging:
 - [Architecture Blueprint](docs/ARCHITECTURE.md) — Technical architecture specification
 - [5-Minute Quickstart Guide](docs/QUICKSTART.md) — Tutorial from zero to running API
 - [Production Best Practices](docs/BEST_PRACTICES.md) — Hardening, security, and performance tuning
-- [Multiplane Deployment Plan](docs/PLAN_PEMISAHAN_MULTIPLANES.md) — Control Plane & Data Plane deployment guide
+- [Branching & Release Guide](docs/BRANCHING_AND_RELEASING.md) — Trunk-based development and release workflow
 
 ---
 

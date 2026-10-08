@@ -8,7 +8,7 @@ all: build
 
 help:
 	@echo "Apirout - Open Source Instant API Engine & Gateway"
-	@echo "Kong Gateway & Hasura GraphQL Engine Architecture"
+	@echo "Self-Hosted Instant API Engine & Multi-Plane Gateway Architecture"
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make build             Build the unified Go binary and web console"

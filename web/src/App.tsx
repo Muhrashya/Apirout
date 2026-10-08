@@ -10,7 +10,7 @@ import { BrandingProvider } from './context/BrandingContext'
 // Lazy-loaded route pages for code-splitting and smaller initial bundle
 const Setup = lazy(() => import('./pages/Setup'))
 const Login = lazy(() => import('./pages/Login'))
-const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Overview = lazy(() => import('./pages/Overview'))
 const RoutesPage = lazy(() => import('./pages/Routes'))
 const RouteFormPage = lazy(() => import('./pages/routes/RouteFormPage'))
 const ServicesPage = lazy(() => import('./pages/Services'))
@@ -27,7 +27,6 @@ const Analytics = lazy(() => import('./pages/observability/Analytics'))
 const Profile = lazy(() => import('./pages/settings/Profile'))
 const Connections = lazy(() => import('./pages/settings/Connections'))
 const ConnectionFormPage = lazy(() => import('./pages/settings/ConnectionFormPage'))
-const ApiClients = lazy(() => import('./pages/settings/ApiClients'))
 const Users = lazy(() => import('./pages/settings/Users'))
 const UserFormPage = lazy(() => import('./pages/settings/UserFormPage'))
 const Domains = lazy(() => import('./pages/settings/Domains'))
@@ -65,7 +64,7 @@ function App() {
 
                                     <Route element={<ProtectedRoute />}>
                                         <Route element={<AppLayout />}>
-                                            <Route path="/overview" element={<Dashboard />} />
+                                            <Route path="/overview" element={<Overview />} />
                                             <Route path="/dashboard" element={<Navigate to="/overview" replace />} />
 
                                             {/* Gateway Routes */}
@@ -148,7 +147,7 @@ function App() {
                                                     <Route path="/settings/users" element={<Users />} />
                                                     <Route path="/settings/users/new" element={<UserFormPage />} />
                                                     <Route path="/settings/users/:id/edit" element={<UserFormPage />} />
-                                                    <Route path="/settings/api-clients" element={<ApiClients />} />
+                                                    <Route path="/settings/api-clients" element={<Navigate to="/consumers" replace />} />
                                                 </Route>
                                                 <Route path="/settings/groups" element={<Navigate to="/settings/users" replace />} />
                                             </Route>
