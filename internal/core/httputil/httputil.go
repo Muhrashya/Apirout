@@ -3,9 +3,9 @@ package httputil
 import (
 	"encoding/json"
 	"log"
-	"net"
 	"net/http"
-	"strings"
+
+	"github.com/apirout/apirout/internal/core/iputil"
 )
 
 // WriteJSON sends a JSON response with status code
@@ -32,26 +32,12 @@ func WriteJSONData(w http.ResponseWriter, status int, data interface{}) {
 	WriteJSON(w, status, map[string]interface{}{"data": data})
 }
 
-// GetClientIP extracts the real client IP address considering proxy headers or remote address.
+// GetClientIP extracts the real client IP address considering configured trusted proxy policies.
 func GetClientIP(r *http.Request) string {
-	headers := []string{
-		"CF-Connecting-IP",
-		"Fastly-Client-IP",
-		"True-Client-IP",
-		"X-Original-Forwarded-For",
-		"X-Forwarded-For",
-		"X-Real-IP",
-	}
+	return iputil.ExtractClientIP(r)
+}
 
-	for _, header := range headers {
-		if val := r.Header.Get(header); val != "" {
-			return strings.TrimSpace(strings.Split(val, ",")[0])
-		}
-	}
-
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		return host
-	}
-	return r.RemoteAddr
+// SetTrustedProxies sets the global trusted proxy CIDR policy for client IP resolution.
+func SetTrustedProxies(rules string) {
+	iputil.SetGlobalTrustedProxies(rules)
 }

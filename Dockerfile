@@ -28,12 +28,20 @@ RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.ver
 FROM alpine:3.21
 
 WORKDIR /app
-RUN apk --no-cache add ca-certificates tzdata curl
+RUN apk --no-cache add ca-certificates tzdata curl && \
+    addgroup -S -g 10001 apirout && \
+    adduser -S -u 10001 -G apirout -h /app apirout && \
+    mkdir -p /app/data && \
+    chown -R apirout:apirout /app
 
-COPY --from=go-builder /build/apirout /app/apirout
-COPY --from=web-builder /web/dist /app/web/dist
+COPY --from=go-builder --chown=apirout:apirout /build/apirout /app/apirout
+COPY --from=web-builder --chown=apirout:apirout /web/dist /app/web/dist
+
+USER apirout
 
 ENV STATIC_DIR=/app/web/dist
+ENV DATA_DIR=/app/data
 EXPOSE 8000 8001 8002 8100
 
 ENTRYPOINT ["/app/apirout"]
+

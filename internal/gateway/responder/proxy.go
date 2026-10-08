@@ -1,6 +1,7 @@
 package responder
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -26,6 +27,12 @@ func HandleProxyError(
 ) {
 	if upDuration != nil && !upStart.IsZero() {
 		*upDuration = int(time.Since(upStart).Milliseconds())
+	}
+
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(proxyErr, &maxBytesErr) {
+		Error(rw, r, http.StatusRequestEntityTooLarge, ErrCodePayloadTooLarge, "Request entity exceeds maximum permitted size")
+		return
 	}
 
 	if cb != nil && targetID != "" {

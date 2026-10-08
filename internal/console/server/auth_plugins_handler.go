@@ -280,7 +280,46 @@ func (h *AuthPluginsHandler) GetOutboundAuth(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, auth)
+	redacted := *auth
+	redacted.Config = RedactOutboundAuthConfig(auth.Config)
+	httputil.WriteJSON(w, http.StatusOK, redacted)
+}
+
+// RedactOutboundAuthConfig parses the config JSON and replaces encrypted ciphertext fields
+// with boolean status indicators, preventing ciphertext strings from ever leaving the server.
+func RedactOutboundAuthConfig(configStr string) string {
+	if configStr == "" {
+		return "{}"
+	}
+	var cfgMap map[string]interface{}
+	if err := json.Unmarshal([]byte(configStr), &cfgMap); err != nil {
+		return "{}"
+	}
+
+	sensitiveFields := []struct {
+		encKey    string
+		statusKey string
+	}{
+		{"password_encrypted", "password_configured"},
+		{"token_encrypted", "token_configured"},
+		{"key_encrypted", "key_configured"},
+		{"access_key_encrypted", "access_key_configured"},
+		{"secret_key_encrypted", "secret_key_configured"},
+		{"client_secret_encrypted", "client_secret_configured"},
+	}
+
+	for _, sf := range sensitiveFields {
+		if val, exists := cfgMap[sf.encKey]; exists && val != nil && val != "" && val != false {
+			cfgMap[sf.statusKey] = true
+			cfgMap[sf.encKey] = true
+		}
+	}
+
+	redactedBytes, err := json.Marshal(cfgMap)
+	if err != nil {
+		return "{}"
+	}
+	return string(redactedBytes)
 }
 
 // SetOutboundAuthRequest represents payload for setting outbound auth
@@ -435,7 +474,9 @@ func (h *AuthPluginsHandler) SetOutboundAuth(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, outboundAuth)
+	respAuth := *outboundAuth
+	respAuth.Config = RedactOutboundAuthConfig(outboundAuth.Config)
+	httputil.WriteJSON(w, http.StatusOK, respAuth)
 }
 
 // DeleteOutboundAuth removes outbound authentication configuration for a service

@@ -19,6 +19,7 @@ import (
 	"github.com/apirout/apirout/internal/console/publisher"
 	"github.com/apirout/apirout/internal/console/registry"
 	"github.com/apirout/apirout/internal/console/server"
+	"github.com/apirout/apirout/internal/core/httputil"
 )
 
 const shutdownGracePeriod = 15 * time.Second
@@ -48,6 +49,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("migrate schema: %w", err)
 	}
 	logger.Info("Control Plane registry ready", "db_type", reg.DBType())
+	httputil.SetTrustedProxies(cfg.TrustedProxies)
 
 	// Redis Publisher
 	pub := publisher.NewRedisPublisher(cfg.RedisURL, cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword, logger)
@@ -101,7 +103,9 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 			middleware.AccessLog(logger)(
 				middleware.Recoverer(logger)(
 					middleware.RequestTimer(
-						middleware.SecurityHeaders(corsHandler.Handler(h))))))
+						middleware.SecurityHeaders(
+							middleware.PayloadShield(2 * 1024 * 1024)(
+								corsHandler.Handler(h)))))))
 	}
 
 	adminHandler := wrapMiddleware(adminRouter)
@@ -131,6 +135,8 @@ func (a *App) Run(ctx context.Context) error {
 			Addr:              ":" + a.cfg.AdminPort,
 			Handler:           a.guiHandler,
 			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       15 * time.Second,
+			WriteTimeout:      30 * time.Second,
 			IdleTimeout:       120 * time.Second,
 		}
 
@@ -157,6 +163,8 @@ func (a *App) Run(ctx context.Context) error {
 		Addr:              ":" + a.cfg.AdminPort,
 		Handler:           a.adminHandler,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
 
@@ -164,6 +172,8 @@ func (a *App) Run(ctx context.Context) error {
 		Addr:              ":" + a.cfg.GUIPort,
 		Handler:           a.guiHandler,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
 

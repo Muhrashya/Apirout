@@ -42,6 +42,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("init registry reader: %w", err)
 	}
 
+	httputil.SetTrustedProxies(cfg.TrustedProxies)
+
 	app := &App{
 		cfg:    cfg,
 		logger: logger,
@@ -146,7 +148,15 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		AllowCredentials: allowCredentials,
 	}
 	corsMiddleware := cors.New(corsOptions)
-	app.proxyHandler = responder.Middleware(middleware.MetricsTracker(corsMiddleware.Handler(r)))
+	maxBodyBytes := int64(cfg.MaxRequestBodyMB) * 1024 * 1024
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = 10 * 1024 * 1024
+	}
+	app.proxyHandler = responder.Middleware(
+		middleware.PayloadShield(maxBodyBytes)(
+			middleware.MetricsTracker(corsMiddleware.Handler(r)),
+		),
+	)
 
 	// Status & Metrics Router (Port 8100)
 	statusR := mux.NewRouter()

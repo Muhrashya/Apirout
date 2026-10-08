@@ -100,3 +100,13 @@ An ordered multi-stage gateway execution module (`internal/gateway/pipeline/`) o
 
 ### Evented Registry
 A decorated storage seam adapter (`internal/console/registry/evented_registry.go`) wrapping control-plane persistence operations with synchronous domain event publishing across the EventBus, ensuring persistence and Data Plane cache synchronization are indivisible.
+
+### Trusted Proxy Ingress
+An authoritative client IP resolution strategy that parses forwarded proxy headers (`X-Forwarded-For`, `X-Real-IP`) exclusively when the direct network connection originates from a pre-configured trusted proxy CIDR, preventing header spoofing and unauthorized IP allowlist bypass.
+
+### Payload Shield
+An ingress protection mechanism operating at the HTTP listener boundary that caps request stream size via explicit byte limits, rejecting oversized payloads with standardized HTTP 413 error envelopes before buffer memory exhaustion.
+
+### Bastion Host Key Policy
+An environment-aware verification control that validates remote SSH server public key fingerprints when tunneling database connections through an SSH jump host, preventing Man-in-the-Middle credential interception.
+

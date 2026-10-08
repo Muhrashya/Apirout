@@ -618,7 +618,7 @@ export default function ServiceFormPage() {
                                             <input
                                                 type={showOutboundSecret ? 'text' : 'password'}
                                                 className="input"
-                                                placeholder={outboundAuth.config.token_encrypted ? '•••••••• (Encrypted, enter new value to change)' : 'Paste backend secret token here'}
+                                                placeholder={outboundAuth.config.token_encrypted || outboundAuth.config.token_configured ? '•••••••• (Encrypted, enter new value to change)' : 'Paste backend secret token here'}
                                                 value={outboundAuth.config.token || ''}
                                                 onChange={e => setOutboundAuth(prev => ({
                                                     ...prev,
@@ -673,7 +673,7 @@ export default function ServiceFormPage() {
                                             <input
                                                 type={showOutboundSecret ? 'text' : 'password'}
                                                 className="input"
-                                                placeholder={outboundAuth.config.password_encrypted ? '•••••••• (Encrypted, enter new value to change)' : 'Backend password'}
+                                                placeholder={outboundAuth.config.password_encrypted || outboundAuth.config.password_configured ? '•••••••• (Encrypted, enter new value to change)' : 'Backend password'}
                                                 value={outboundAuth.config.password || ''}
                                                 onChange={e => setOutboundAuth(prev => ({
                                                     ...prev,
@@ -716,7 +716,7 @@ export default function ServiceFormPage() {
                                             <input
                                                 type={showOutboundSecret ? 'text' : 'password'}
                                                 className="input"
-                                                placeholder={outboundAuth.config.key_encrypted ? '•••••••• (Encrypted)' : 'API key value'}
+                                                placeholder={outboundAuth.config.key_encrypted || outboundAuth.config.key_configured ? '•••••••• (Encrypted)' : 'API key value'}
                                                 value={outboundAuth.config.key || ''}
                                                 onChange={e => setOutboundAuth(prev => ({
                                                     ...prev,
@@ -785,7 +785,7 @@ export default function ServiceFormPage() {
                                             <input
                                                 type={showOutboundSecret ? 'text' : 'password'}
                                                 className="input"
-                                                placeholder={outboundAuth.config.secret_key_encrypted ? '•••••••• (Encrypted)' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'}
+                                                placeholder={outboundAuth.config.secret_key_encrypted || outboundAuth.config.secret_key_configured ? '•••••••• (Encrypted)' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'}
                                                 value={outboundAuth.config.secret_key || ''}
                                                 onChange={e => setOutboundAuth(prev => ({
                                                     ...prev,
@@ -856,7 +856,7 @@ export default function ServiceFormPage() {
                                             <input
                                                 type={showOutboundSecret ? 'text' : 'password'}
                                                 className="input"
-                                                placeholder={outboundAuth.config.client_secret_encrypted ? '•••••••• (Encrypted)' : 'OAuth2 client secret'}
+                                                placeholder={outboundAuth.config.client_secret_encrypted || outboundAuth.config.client_secret_configured ? '•••••••• (Encrypted)' : 'OAuth2 client secret'}
                                                 value={outboundAuth.config.client_secret || ''}
                                                 onChange={e => setOutboundAuth(prev => ({
                                                     ...prev,

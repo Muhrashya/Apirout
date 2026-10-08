@@ -1,14 +1,32 @@
 package tunnel
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 )
+
+// ErrHostKeyRequiredInProduction is returned when an SSH bastion tunnel lacks host key verification in production.
+var ErrHostKeyRequiredInProduction = errors.New("SSH bastion host key verification is required in production (HostKey cannot be empty)")
+
+func getAppEnv() string {
+	env := strings.ToLower(os.Getenv("APP_ENV"))
+	if env == "" {
+		env = strings.ToLower(os.Getenv("APIROUT_ENV"))
+	}
+	if env == "" {
+		return "production"
+	}
+	return env
+}
 
 // SSHTunnel represents an SSH tunnel connection for bastion/jump hosts
 type SSHTunnel struct {
@@ -19,6 +37,7 @@ type SSHTunnel struct {
 	SSHPort    int
 	SSHUser    string
 	HostKey    string
+	AppEnv     string
 	AuthMethod ssh.AuthMethod
 
 	listener net.Listener
@@ -35,6 +54,7 @@ type Config struct {
 	Password   string
 	PrivateKey string
 	HostKey    string // optional base64 or authorized_keys format host public key
+	AppEnv     string // optional environment override ("production", "development", "test")
 	RemoteHost string
 	RemotePort int
 }
@@ -55,6 +75,11 @@ func NewSSHTunnel(cfg Config) (*SSHTunnel, error) {
 		return nil, fmt.Errorf("no authentication method provided")
 	}
 
+	env := cfg.AppEnv
+	if env == "" {
+		env = getAppEnv()
+	}
+
 	return &SSHTunnel{
 		RemoteHost: cfg.RemoteHost,
 		RemotePort: cfg.RemotePort,
@@ -62,6 +87,7 @@ func NewSSHTunnel(cfg Config) (*SSHTunnel, error) {
 		SSHPort:    cfg.SSHPort,
 		SSHUser:    cfg.SSHUser,
 		HostKey:    cfg.HostKey,
+		AppEnv:     env,
 		AuthMethod: authMethod,
 		done:       make(chan struct{}),
 	}, nil
@@ -80,6 +106,14 @@ func (t *SSHTunnel) Start() (int, error) {
 		}
 		hostKeyCallback = ssh.FixedHostKey(pubKey)
 	} else {
+		env := t.AppEnv
+		if env == "" {
+			env = getAppEnv()
+		}
+		if env != "development" && env != "dev" && env != "test" {
+			return 0, ErrHostKeyRequiredInProduction
+		}
+		log.Printf("[SECURITY WARNING] SSH bastion tunnel connecting to %s:%d without host key verification (insecure in production)", t.SSHHost, t.SSHPort)
 		hostKeyCallback = ssh.InsecureIgnoreHostKey()
 	}
 

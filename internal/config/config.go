@@ -34,6 +34,7 @@ type Config struct {
 	GUIPort            string
 	StatusPort         string
 	AdminAllowedIPs    string // CIDR or single IPs allowed to access Admin API & Console UI
+	TrustedProxies     string // Comma-separated CIDR or IP list of trusted reverse proxies/load balancers
 
 	// Compatibility aliases
 	ControlPlanePort   string
@@ -48,6 +49,7 @@ type Config struct {
 	APITokenTTL        time.Duration
 	EncryptionKey      string
 	GlobalRateLimitRPM int
+	MaxRequestBodyMB   int // Maximum incoming request body size in megabytes (default: 10)
 
 	// Registry Database (PostgreSQL / SQLite)
 	DBType            string
@@ -108,6 +110,13 @@ func Load() (*Config, error) {
 		GUIPort:            guiPort,
 		StatusPort:         statusPort,
 		AdminAllowedIPs:    getEnvAny("ADMIN_ALLOWED_IPS", "APIROUT_ADMIN_ALLOWED_IPS", "*"),
+		TrustedProxies:     getEnvAny("TRUSTED_PROXIES", "APIROUT_TRUSTED_PROXIES", func() string {
+			env := strings.ToLower(getEnvAny("APP_ENV", "APIROUT_ENV", "production"))
+			if env == "development" || env == "dev" || env == "test" {
+				return "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+			}
+			return ""
+		}()),
 		ControlPlanePort:   adminPort,
 		DataPlanePort:      proxyPort,
 		EnableConsole:      getEnvBool("ENABLE_CONSOLE", true),
@@ -118,6 +127,7 @@ func Load() (*Config, error) {
 		AdminSecret:        getEnvAny("ADMIN_SECRET", "APIROUT_ADMIN_SECRET", ""),
 		EncryptionKey:      getEnvAny("APP_ENCRYPTION_KEY", "APIROUT_ENCRYPTION_KEY", "aes-encryption-key-32-chars-ok!"),
 		GlobalRateLimitRPM: getEnvInt("GLOBAL_RATE_LIMIT_RPM", 600),
+		MaxRequestBodyMB:   getEnvInt("MAX_REQUEST_BODY_MB", 10),
 
 		DBType:            strings.ToLower(getEnvAny("DB_TYPE", "APIROUT_DB_TYPE", "postgres")),
 		DBPath:            getEnvAny("DB_PATH", "APIROUT_DB_PATH", ""),

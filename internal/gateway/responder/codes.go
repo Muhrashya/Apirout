@@ -25,7 +25,8 @@ const (
 	ErrCodeBadGateway          ErrorCode = "BAD_GATEWAY"
 
 	// Request Validation & Server
-	ErrCodeBadRequest    ErrorCode = "BAD_REQUEST"
-	ErrCodeNotFound      ErrorCode = "RECORD_NOT_FOUND"
-	ErrCodeInternalError ErrorCode = "INTERNAL_ERROR"
+	ErrCodeBadRequest       ErrorCode = "BAD_REQUEST"
+	ErrCodeNotFound         ErrorCode = "RECORD_NOT_FOUND"
+	ErrCodePayloadTooLarge  ErrorCode = "PAYLOAD_TOO_LARGE"
+	ErrCodeInternalError    ErrorCode = "INTERNAL_ERROR"
 )

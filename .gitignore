@@ -46,3 +46,9 @@ Thumbs.db
 node_modules/
 dist/
 build/
+
+# Secrets & Certificates
+*.key
+*.crt
+*.pem
+*.cert
