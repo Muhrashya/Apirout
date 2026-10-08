@@ -93,6 +93,10 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
     const isStaged = !!stagedMode;
     const currentPlugins = isStaged ? (stagedPlugins || []) : internalPlugins;
 
+    const activePlugins = currentPlugins.filter(p => p._stagedState !== 'deleted');
+    const attachedPluginNames = new Set(activePlugins.map(p => p.plugin_name));
+    const isAllPluginsAttached = AVAILABLE_PLUGINS.every(p => attachedPluginNames.has(p.name));
+
     useEffect(() => {
         if (!isStaged && (entityId || scope === 'global')) {
             loadPlugins();
@@ -115,15 +119,15 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
         }
     };
 
-    const openAddModal = (pName = 'key-auth') => {
-        const activePlugins = currentPlugins.filter(p => p._stagedState !== 'deleted');
-        const attachedNames = new Set(activePlugins.map(p => p.plugin_name));
+    const openAddModal = (pName?: string) => {
         let targetName = pName;
-        if (attachedNames.has(targetName)) {
-            const firstAvailable = AVAILABLE_PLUGINS.find(p => !attachedNames.has(p.name));
-            if (firstAvailable) {
-                targetName = firstAvailable.name;
+        if (!targetName || attachedPluginNames.has(targetName)) {
+            const firstAvailable = AVAILABLE_PLUGINS.find(p => !attachedPluginNames.has(p.name));
+            if (!firstAvailable) {
+                toast.info('All available authentication plugins are already attached');
+                return;
             }
+            targetName = firstAvailable.name;
         }
         setSelectedPluginName(targetName);
         const meta = AVAILABLE_PLUGINS.find(p => p.name === targetName);
@@ -197,6 +201,13 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
         if (e) {
             e.preventDefault();
             e.stopPropagation();
+        }
+        const isDuplicate = currentPlugins.some(
+            p => p.plugin_name === selectedPluginName && p._stagedState !== 'deleted'
+        );
+        if (isDuplicate) {
+            toast.error(`Plugin '${selectedPluginName}' is already attached to this ${scope}`);
+            return;
         }
         try {
             const configObj = buildConfigObject();
@@ -381,12 +392,25 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
 
                 <button
                     type="button"
+                    disabled={isAllPluginsAttached}
                     className="btn-header-new-route"
-                    style={{ fontSize: '12.5px', padding: '6px 14px' }}
-                    onClick={() => openAddModal()}
+                    style={{
+                        fontSize: '12.5px',
+                        padding: '6px 14px',
+                        opacity: isAllPluginsAttached ? 0.6 : 1,
+                        cursor: isAllPluginsAttached ? 'not-allowed' : 'pointer',
+                        backgroundColor: isAllPluginsAttached ? '#94a3b8' : undefined,
+                        borderColor: isAllPluginsAttached ? '#cbd5e1' : undefined
+                    }}
+                    title={isAllPluginsAttached ? 'All available authentication plugins are already attached' : 'Attach an authentication plugin'}
+                    onClick={() => {
+                        if (!isAllPluginsAttached) {
+                            openAddModal();
+                        }
+                    }}
                 >
                     <IconPlus width={14} height={14} />
-                    <span>Attach Plugin</span>
+                    <span>{isAllPluginsAttached ? 'All Plugins Attached' : 'Attach Plugin'}</span>
                 </button>
             </div>
 
@@ -410,7 +434,7 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                         By default, requests use the global fallback or route public setting. Attach an auth plugin to enforce API keys, JWT, Basic auth, or HMAC verification.
                     </p>
                     <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        {AVAILABLE_PLUGINS.slice(0, 3).map(p => (
+                        {AVAILABLE_PLUGINS.filter(p => !attachedPluginNames.has(p.name)).slice(0, 3).map(p => (
                             <button
                                 key={p.name}
                                 type="button"
@@ -433,25 +457,46 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                 </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {/* Multi-Plugin Logical OR Informational Banner */}
-                    {currentPlugins.filter(p => p._stagedState !== 'deleted').length >= 2 && (
+                    {/* Multi-Plugin Logical OR Informational Banner with Security Guidance */}
+                    {activePlugins.length >= 2 && (
                         <div style={{
                             display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px',
-                            padding: '10px 14px',
+                            flexDirection: 'column',
+                            gap: '6px',
+                            padding: '12px 14px',
                             backgroundColor: '#eff6ff',
                             border: '1px solid #bfdbfe',
                             borderRadius: '8px',
                             color: '#1e40af',
                             fontSize: '12.5px',
-                            fontWeight: 500,
-                            lineHeight: 1.4
+                            lineHeight: 1.45
                         }}>
-                            <span style={{ fontSize: '15px' }}>ℹ️</span>
-                            <span>
-                                <strong>Multi-Plugin Logical OR:</strong> Requests are granted access if any attached plugin successfully authenticates the client (first match wins).
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
+                                <span style={{ fontSize: '15px' }}>ℹ️</span>
+                                <span>
+                                    <strong>Multi-Plugin Logical OR:</strong> Requests are granted access if any attached plugin successfully authenticates the client (first match wins).
+                                </span>
+                            </div>
+                            {activePlugins.length >= 3 && (
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    marginTop: '2px',
+                                    padding: '6px 10px',
+                                    backgroundColor: '#fef3c7',
+                                    border: '1px solid #fde68a',
+                                    borderRadius: '6px',
+                                    color: '#92400e',
+                                    fontSize: '11.5px',
+                                    fontWeight: 500
+                                }}>
+                                    <span>⚠️</span>
+                                    <span>
+                                        <strong>Security Tip:</strong> Attaching 3 or more authentication mechanisms widens credential attack surface. Ensure all allowed methods meet your security policy.
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     )}
                     {currentPlugins.map(p => {
@@ -861,17 +906,34 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                             >
                                 Cancel
                             </button>
-                            <button
-                                type="button"
-                                className="btn-header-new-route"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleCreatePlugin(e);
-                                }}
-                            >
-                                {isStaged ? 'Stage Plugin' : 'Attach Plugin'}
-                            </button>
+                            {(() => {
+                                const isSelectedAttached = currentPlugins.some(
+                                    p => p.plugin_name === selectedPluginName && p._stagedState !== 'deleted'
+                                );
+                                return (
+                                    <button
+                                        type="button"
+                                        disabled={isSelectedAttached || !selectedPluginName}
+                                        className="btn-header-new-route"
+                                        style={{
+                                            opacity: isSelectedAttached ? 0.5 : 1,
+                                            cursor: isSelectedAttached ? 'not-allowed' : 'pointer',
+                                            backgroundColor: isSelectedAttached ? '#94a3b8' : undefined,
+                                            borderColor: isSelectedAttached ? '#cbd5e1' : undefined
+                                        }}
+                                        title={isSelectedAttached ? `${selectedPluginName} is already attached` : undefined}
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (!isSelectedAttached) {
+                                                handleCreatePlugin(e);
+                                            }
+                                        }}
+                                    >
+                                        {isStaged ? 'Stage Plugin' : 'Attach Plugin'}
+                                    </button>
+                                );
+                            })()}
                         </div>
                     </form>
                 </Modal>
