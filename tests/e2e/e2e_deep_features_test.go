@@ -978,3 +978,92 @@ func TestE2E_CORSPreflightAndOrigins(t *testing.T) {
 		}
 	})
 }
+
+func TestE2E_DynamicRouteInvalidationAndHotReload(t *testing.T) {
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano()%1000000)
+	svcName := "hotreload-svc-" + suffix
+	routePath := "/api/v1/hotreload-test-" + suffix
+
+	// 1. Create Service pointing to status port healthcheck
+	code, svcRes := adminRequest(t, "POST", "/api/v1/services", map[string]any{
+		"name":     svcName,
+		"protocol": "http",
+		"host":     "127.0.0.1",
+		"port":     8100,
+		"path":     "/health",
+		"enabled":  true,
+	})
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create service: %d %v", code, svcRes)
+	}
+	svcID := extractID(svcRes)
+	t.Cleanup(func() {
+		if svcID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/services/"+svcID, nil)
+		}
+	})
+
+	// 2. Create Protected Route (is_public: false)
+	code, epRes := adminRequest(t, "POST", "/api/v1/endpoints", map[string]any{
+		"service_id": svcID,
+		"method":     "GET",
+		"path":       routePath,
+		"strip_path": true,
+		"is_public":  false, // Initially Protected!
+		"enabled":    true,
+	})
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("failed to create protected endpoint: %d %v", code, epRes)
+	}
+	epID := extractID(epRes)
+	t.Cleanup(func() {
+		if epID != "" {
+			_, _ = adminRequest(t, "DELETE", "/api/v1/endpoints/"+epID, nil)
+		}
+	})
+
+	// Wait briefly for EventBus event to propagate to in-memory radix tree
+	time.Sleep(150 * time.Millisecond)
+
+	// Step 1: Inbound unauthenticated request must be rejected with 401 Unauthorized
+	code, _, body := gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for initial protected route, got %d: %s", code, string(body))
+	}
+
+	// Step 2: Dynamically toggle route to is_public: true via Control Plane API
+	code, updateRes := adminRequest(t, "PUT", "/api/v1/routes/"+epID, map[string]any{
+		"service_id": svcID,
+		"method":     "GET",
+		"path":       routePath,
+		"strip_path": true,
+		"is_public":  true, // Dynamically made Public!
+		"enabled":    true,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("failed to update route to public: %d %v", code, updateRes)
+	}
+
+	// Wait briefly for EventBus event propagation & atomic pointer swap (<150ms)
+	time.Sleep(150 * time.Millisecond)
+
+	// Step 3: Exact same unauthenticated request must now succeed immediately (200 OK) without container restart!
+	code, _, body = gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 OK after dynamic hot-reload to public, got %d: %s", code, string(body))
+	}
+
+	// Step 4: Dynamically delete the route via Control Plane API
+	code, _ = adminRequest(t, "DELETE", "/api/v1/routes/"+epID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("failed to delete route: %d", code)
+	}
+
+	time.Sleep(150 * time.Millisecond)
+
+	// Step 5: Exact same request must now return 404 Not Found immediately
+	code, _, _ = gatewayRequestWithHeaders(t, "GET", routePath, nil, nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found after dynamic route deletion, got %d", code)
+	}
+}

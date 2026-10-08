@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/apirout/apirout/internal/console/auth"
+	"github.com/apirout/apirout/internal/console/publisher"
 	"github.com/apirout/apirout/internal/console/registry"
 	"github.com/apirout/apirout/internal/core/cache"
 	"github.com/apirout/apirout/internal/core/httputil"
@@ -17,11 +18,12 @@ import (
 type EndpointHandler struct {
 	registry      *registry.Registry
 	endpointCache *cache.EndpointCache
+	publisher     *publisher.RedisPublisher
 }
 
 // NewEndpointHandler creates a new endpoint handler
-func NewEndpointHandler(reg *registry.Registry, epCache *cache.EndpointCache) *EndpointHandler {
-	return &EndpointHandler{registry: reg, endpointCache: epCache}
+func NewEndpointHandler(reg *registry.Registry, epCache *cache.EndpointCache, pub *publisher.RedisPublisher) *EndpointHandler {
+	return &EndpointHandler{registry: reg, endpointCache: epCache, publisher: pub}
 }
 
 // List returns ALL endpoints with metadata (filtered by user's groups)
@@ -230,6 +232,10 @@ func (h *EndpointHandler) Create(w http.ResponseWriter, r *http.Request) {
 		h.endpointCache.Invalidate(endpoint.Path)
 	}
 
+	if h.publisher != nil {
+		_ = h.publisher.PublishEndpointChanged("CREATE", endpoint.ID, endpoint.Path)
+	}
+
 	httputil.WriteJSON(w, http.StatusCreated, endpoint)
 }
 
@@ -327,6 +333,10 @@ func (h *EndpointHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.endpointCache.Invalidate(existing.Path)
 	}
 
+	if h.publisher != nil {
+		_ = h.publisher.PublishEndpointChanged("UPDATE", existing.ID, existing.Path)
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "Endpoint updated successfully"})
 }
 
@@ -364,6 +374,10 @@ func (h *EndpointHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	// Invalidate cache
 	if h.endpointCache != nil {
 		h.endpointCache.Invalidate(existing.Path)
+	}
+
+	if h.publisher != nil {
+		_ = h.publisher.PublishEndpointChanged("DELETE", existing.ID, existing.Path)
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "Endpoint deleted successfully"})

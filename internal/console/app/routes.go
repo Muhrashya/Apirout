@@ -157,7 +157,7 @@ func buildAdminAPIRouter(d routerDeps) *mux.Router {
 	adminRouter.Handle("/targets/{targetId}/health-check", d.authService.RequireRole("MAINTAINER", "ADMIN", "SUPER_ADMIN")(http.HandlerFunc(upstreamsHandler.HealthCheckTarget))).Methods("POST")
 
 	// Routes Publishing (Canonical Kong name for Endpoints)
-	endpointHandler := server.NewEndpointHandler(d.reg, d.executorService.GetEndpointCache())
+	endpointHandler := server.NewEndpointHandler(d.reg, d.executorService.GetEndpointCache(), d.publisher)
 	adminRouter.HandleFunc("/routes", endpointHandler.List).Methods("GET")
 	adminRouter.Handle("/routes", d.authService.RequireRole("DEVELOPER", "ADMIN", "SUPER_ADMIN")(http.HandlerFunc(endpointHandler.Create))).Methods("POST")
 	adminRouter.HandleFunc("/routes/{id}", endpointHandler.Get).Methods("GET")
