@@ -837,7 +837,7 @@ func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, en
 
 	targetURL, err := url.Parse(fmt.Sprintf("%s://%s:%d", protocol, backendHost, backendPort))
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusBadGateway, "Invalid backend URL")
+		responder.Error(w, r, http.StatusBadGateway, responder.ErrCodeBadGateway, "Invalid backend URL")
 		return
 	}
 

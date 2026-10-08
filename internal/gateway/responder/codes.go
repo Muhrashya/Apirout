@@ -22,6 +22,7 @@ const (
 	ErrCodeUpstreamTimeout     ErrorCode = "UPSTREAM_TIMEOUT"
 	ErrCodeCircuitBreakerOpen  ErrorCode = "CIRCUIT_BREAKER_OPEN"
 	ErrCodeNoHealthyTargets    ErrorCode = "NO_HEALTHY_TARGETS"
+	ErrCodeBadGateway          ErrorCode = "BAD_GATEWAY"
 
 	// Request Validation & Server
 	ErrCodeBadRequest    ErrorCode = "BAD_REQUEST"
