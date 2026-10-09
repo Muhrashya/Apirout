@@ -112,7 +112,7 @@ export default function Domains() {
                 <div className="overview-title-col">
                     <h1 className="overview-title">Gateway Domains</h1>
                     <p className="overview-subtitle">
-                        Configure custom hostnames, host header routing rules, and edge ingress bindings for Gateway traffic.
+                        Configure custom hostnames and host header routing rules for Gateway traffic.
                     </p>
                 </div>
 
@@ -205,35 +205,7 @@ export default function Domains() {
                     </div>
                 </div>
 
-                <div
-                    className="overview-metric-card"
-                    style={{
-                        background: '#ffffff',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '12px',
-                        padding: '20px',
-                        boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.04)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                        minHeight: '128px'
-                    }}
-                >
-                    <div className="metric-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span className="metric-card-label" style={{ fontSize: '13.5px', fontWeight: 500, color: '#64748b' }}>INGRESS ARCHITECTURE</span>
-                        <div className="metric-card-icon-badge" style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <IconShield width={16} height={16} />
-                        </div>
-                    </div>
-                    <div className="metric-card-body" style={{ marginTop: '12px' }}>
-                        <div className="metric-card-number" style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', paddingTop: '6px', lineHeight: 1.1 }}>
-                            Edge Offloaded
-                        </div>
-                        <div className="metric-card-trend" style={{ fontSize: '12.5px', fontWeight: 500, marginTop: '6px', color: '#64748b' }}>
-                            SSL/TLS terminated at Edge Reverse Proxy / Ingress
-                        </div>
-                    </div>
-                </div>
+
 
                 <div
                     className="overview-metric-card"
@@ -416,7 +388,7 @@ export default function Domains() {
                                 }}>
                                     <th style={{ padding: '14px 20px' }}>Domain / Hostname</th>
                                     <th style={{ padding: '14px 20px' }}>Environment</th>
-                                    <th style={{ padding: '14px 20px' }}>Ingress Mode</th>
+
                                     <th style={{ padding: '14px 20px' }}>Allowed Client IPs</th>
                                     <th style={{ padding: '14px 20px' }}>Routing Role</th>
                                     <th style={{ padding: '14px 20px' }}>Description</th>
@@ -501,24 +473,7 @@ export default function Domains() {
                                                 </span>
                                             </td>
 
-                                            {/* Ingress Mode */}
-                                            <td style={{ padding: '16px 20px' }}>
-                                                <span style={{
-                                                    fontSize: '11.5px',
-                                                    fontWeight: 600,
-                                                    padding: '3px 9px',
-                                                    borderRadius: '6px',
-                                                    background: '#f8fafc',
-                                                    color: '#334155',
-                                                    border: '1px solid #e2e8f0',
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: '5px'
-                                                }} title="SSL/TLS terminated at Edge Reverse Proxy / Ingress">
-                                                    <IconShield width={13} height={13} />
-                                                    <span>Edge Offloaded</span>
-                                                </span>
-                                            </td>
+
 
                                             {/* Allowed Client IPs */}
                                             <td style={{ padding: '16px 20px' }}>

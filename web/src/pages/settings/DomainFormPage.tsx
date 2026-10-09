@@ -63,7 +63,7 @@ export default function DomainFormPage() {
                 <div className="overview-title-col">
                     <h1 className="overview-title">Register Gateway Domain</h1>
                     <p className="overview-subtitle">
-                        Configure custom hostnames, host header routing rules, and edge ingress bindings for Gateway traffic.
+                        Configure custom hostnames and host header routing rules for Gateway traffic.
                     </p>
                 </div>
                 <div className="overview-header-actions">
@@ -150,40 +150,24 @@ export default function DomainFormPage() {
                     </div>
                 </div>
 
-                {/* Card 2: Security & Edge Ingress */}
+                {/* Card 2: Security & IP Whitelisting */}
                 <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                        Edge Security &amp; Ingress Whitelisting
+                        Security &amp; IP Whitelisting
                     </h2>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                        <div className="form-group">
-                            <label className="label">Allowed Client IP CIDRs</label>
-                            <input
-                                type="text"
-                                className="input"
-                                placeholder="* (All) or 10.0.0.0/8, 192.168.1.0/24"
-                                value={form.default_allowed_ips}
-                                onChange={e => setForm(prev => ({ ...prev, default_allowed_ips: e.target.value }))}
-                            />
-                            <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                                Comma-separated CIDR blocks allowed to connect. Use * for public access.
-                            </span>
-                        </div>
-
-                        <div className="form-group">
-                            <label className="label">Gateway Ingress Architecture</label>
-                            <input
-                                type="text"
-                                className="input"
-                                value="Edge Offloaded Ingress (HTTP Gateway)"
-                                disabled
-                                style={{ background: '#f8fafc', color: '#475569', cursor: 'default' }}
-                            />
-                            <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                                SSL/TLS encryption is terminated at the edge reverse proxy or load balancer (Cloudflare, Ingress, or AWS ALB) before routing into Apirout.
-                            </span>
-                        </div>
+                    <div className="form-group">
+                        <label className="label">Allowed Client IP CIDRs</label>
+                        <input
+                            type="text"
+                            className="input"
+                            placeholder="* (All) or 10.0.0.0/8, 192.168.1.0/24"
+                            value={form.default_allowed_ips}
+                            onChange={e => setForm(prev => ({ ...prev, default_allowed_ips: e.target.value }))}
+                        />
+                        <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                            Comma-separated CIDR blocks allowed to connect. Use * for public access.
+                        </span>
                     </div>
                 </div>
 
