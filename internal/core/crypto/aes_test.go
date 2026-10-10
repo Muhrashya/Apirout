@@ -89,3 +89,29 @@ func TestDecryptPassword_LegacyCFB(t *testing.T) {
 		t.Fatalf("expected %q, got %q", rawPassword, dec)
 	}
 }
+
+func TestDecryptPassword_TamperedGCM(t *testing.T) {
+	key := NormalizeKey("tamper-test-key-32-bytes-secure!")
+	plaintext := "confidential-database-password-999"
+
+	enc, err := EncryptPassword(key, plaintext)
+	if err != nil {
+		t.Fatalf("failed to encrypt: %v", err)
+	}
+
+	// Verify tampering with the ciphertext causes authentication error
+	encBytes := []byte(enc)
+	// Flip the last character in the base64 string
+	if encBytes[len(encBytes)-1] == 'A' {
+		encBytes[len(encBytes)-1] = 'B'
+	} else {
+		encBytes[len(encBytes)-1] = 'A'
+	}
+	tampered := string(encBytes)
+
+	_, err = DecryptPassword(key, tampered)
+	if err == nil {
+		t.Fatalf("expected tampered ciphertext to fail decryption with AEAD error, but succeeded")
+	}
+}
+

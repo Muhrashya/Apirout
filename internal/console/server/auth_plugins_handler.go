@@ -39,6 +39,9 @@ func (h *AuthPluginsHandler) List(w http.ResponseWriter, r *http.Request) {
 	if plugins == nil {
 		plugins = []models.AuthPluginConfigWithNames{}
 	}
+	for i := range plugins {
+		plugins[i].Config = RedactInboundAuthConfig(plugins[i].Config)
+	}
 	httputil.WriteJSONData(w, http.StatusOK, plugins)
 }
 
@@ -54,7 +57,9 @@ func (h *AuthPluginsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONError(w, http.StatusNotFound, "Auth plugin not found")
 		return
 	}
-	httputil.WriteJSON(w, http.StatusOK, plugin)
+	redacted := *plugin
+	redacted.Config = RedactInboundAuthConfig(plugin.Config)
+	httputil.WriteJSON(w, http.StatusOK, redacted)
 }
 
 // CreateAuthPluginRequest represents request payload for creating an auth plugin
@@ -159,12 +164,19 @@ func (h *AuthPluginsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	encConfig, err := EncryptInboundAuthConfig(configStr, h.encryptionKey)
+	if err == nil {
+		plugin.Config = encConfig
+	}
+
 	if err := h.registry.CreateAuthPlugin(plugin); err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create auth plugin: "+err.Error())
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusCreated, plugin)
+	respPlugin := *plugin
+	respPlugin.Config = RedactInboundAuthConfig(plugin.Config)
+	httputil.WriteJSON(w, http.StatusCreated, respPlugin)
 }
 
 // Update updates an existing auth plugin configuration
@@ -202,16 +214,41 @@ func (h *AuthPluginsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		existing.ConsumerID = req.ConsumerID
 	}
 	if req.Config != nil {
+		configStr := existing.Config
 		switch c := req.Config.(type) {
 		case string:
 			if strings.TrimSpace(c) != "" {
-				existing.Config = c
+				configStr = c
 			}
 		default:
 			bytes, err := json.Marshal(c)
 			if err == nil {
-				existing.Config = string(bytes)
+				configStr = string(bytes)
 			}
+		}
+
+		var newMap map[string]interface{}
+		var oldMap map[string]interface{}
+		_ = json.Unmarshal([]byte(configStr), &newMap)
+		_ = json.Unmarshal([]byte(existing.Config), &oldMap)
+
+		if newMap != nil && oldMap != nil {
+			for _, encKey := range []string{"password_encrypted", "secret_encrypted", "secret_key_encrypted", "api_key_encrypted"} {
+				if val, exists := newMap[encKey]; !exists || val == true {
+					if oldVal, ok := oldMap[encKey]; ok {
+						newMap[encKey] = oldVal
+					}
+				}
+			}
+			newBytes, _ := json.Marshal(newMap)
+			configStr = string(newBytes)
+		}
+
+		encConfig, err := EncryptInboundAuthConfig(configStr, h.encryptionKey)
+		if err == nil {
+			existing.Config = encConfig
+		} else {
+			existing.Config = configStr
 		}
 	}
 	if req.Enabled != nil {
@@ -247,7 +284,9 @@ func (h *AuthPluginsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, existing)
+	respPlugin := *existing
+	respPlugin.Config = RedactInboundAuthConfig(existing.Config)
+	httputil.WriteJSON(w, http.StatusOK, respPlugin)
 }
 
 // Delete removes an auth plugin configuration
@@ -320,6 +359,91 @@ func RedactOutboundAuthConfig(configStr string) string {
 		return "{}"
 	}
 	return string(redactedBytes)
+}
+
+// RedactInboundAuthConfig redacts sensitive inbound secrets from plugin configuration JSON strings
+func RedactInboundAuthConfig(configStr string) string {
+	if configStr == "" {
+		return "{}"
+	}
+	var cfgMap map[string]interface{}
+	if err := json.Unmarshal([]byte(configStr), &cfgMap); err != nil {
+		return "{}"
+	}
+
+	sensitiveFields := []struct {
+		plainKey  string
+		encKey    string
+		statusKey string
+	}{
+		{"password", "password_encrypted", "password_configured"},
+		{"secret", "secret_encrypted", "secret_configured"},
+		{"secret_key", "secret_key_encrypted", "secret_key_configured"},
+		{"key", "key_encrypted", "key_configured"},
+		{"api_key", "api_key_encrypted", "api_key_configured"},
+	}
+
+	for _, sf := range sensitiveFields {
+		hasSecret := false
+		if val, exists := cfgMap[sf.plainKey]; exists && val != nil && val != "" && val != false {
+			hasSecret = true
+			delete(cfgMap, sf.plainKey)
+		}
+		if val, exists := cfgMap[sf.encKey]; exists && val != nil && val != "" && val != false {
+			hasSecret = true
+			cfgMap[sf.encKey] = true
+		}
+		if hasSecret {
+			cfgMap[sf.statusKey] = true
+		}
+	}
+
+	redactedBytes, err := json.Marshal(cfgMap)
+	if err != nil {
+		return "{}"
+	}
+	return string(redactedBytes)
+}
+
+// EncryptInboundAuthConfig encrypts plaintext secrets in inbound plugin configuration JSON before database storage
+func EncryptInboundAuthConfig(configStr string, key []byte) (string, error) {
+	if configStr == "" {
+		return "{}", nil
+	}
+	var cfgMap map[string]interface{}
+	if err := json.Unmarshal([]byte(configStr), &cfgMap); err != nil {
+		return configStr, nil
+	}
+
+	sensitiveFields := []struct {
+		plainKey string
+		encKey   string
+	}{
+		{"password", "password_encrypted"},
+		{"secret", "secret_encrypted"},
+		{"secret_key", "secret_key_encrypted"},
+		{"key", "key_encrypted"},
+		{"api_key", "api_key_encrypted"},
+	}
+
+	for _, sf := range sensitiveFields {
+		if val, exists := cfgMap[sf.plainKey]; exists {
+			if strVal, ok := val.(string); ok && strVal != "" {
+				encrypted, err := crypto.EncryptPassword(key, strVal)
+				if err != nil {
+					return "", err
+				}
+				cfgMap[sf.encKey] = encrypted
+				delete(cfgMap, sf.plainKey)
+			}
+		}
+	}
+
+	bytes, err := json.Marshal(cfgMap)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
 }
 
 // SetOutboundAuthRequest represents payload for setting outbound auth

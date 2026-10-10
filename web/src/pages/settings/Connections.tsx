@@ -106,9 +106,6 @@ export default function ConnectionsPage() {
         if (t === 'mongodb' || t === 'mongo') {
             return { label: 'MongoDB', bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' };
         }
-        if (t === 'sqlite') {
-            return { label: 'SQLite', bg: '#f1f5f9', color: '#0f80c1', border: '#bae6fd' };
-        }
         if (t === 'redis') {
             return { label: 'Redis', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' };
         }

@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
+	_ "github.com/microsoft/go-mssqldb"
 )
 
 // ColumnInfo holds metadata for a single database column
@@ -41,6 +43,8 @@ func Introspect(ctx context.Context, dbType, connString string) (*SchemaInfo, er
 		return introspectPostgres(ctx, connString)
 	case "mysql":
 		return introspectMySQL(ctx, connString)
+	case "mssql", "sqlserver":
+		return introspectMSSQL(ctx, connString)
 	default:
 		return nil, fmt.Errorf("unsupported database type for introspection: %s", dbType)
 	}
@@ -226,3 +230,107 @@ func introspectMySQL(ctx context.Context, connString string) (*SchemaInfo, error
 		Timestamp: time.Now().Unix(),
 	}, nil
 }
+
+func introspectMSSQL(ctx context.Context, connString string) (*SchemaInfo, error) {
+	db, err := sql.Open("sqlserver", connString)
+	if err != nil {
+		return nil, fmt.Errorf("open mssql connection: %w", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// 1. Fetch tables
+	tableQuery := `
+		SELECT TABLE_NAME, TABLE_TYPE
+		FROM INFORMATION_SCHEMA.TABLES
+		WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW')
+		ORDER BY TABLE_NAME;
+	`
+	rows, err := db.QueryContext(ctx, tableQuery)
+	if err != nil {
+		return nil, fmt.Errorf("query mssql tables: %w", err)
+	}
+	defer rows.Close()
+
+	var tables []TableInfo
+	for rows.Next() {
+		var t TableInfo
+		if err := rows.Scan(&t.Name, &t.Type); err != nil {
+			return nil, err
+		}
+		tables = append(tables, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 2. Fetch primary keys
+	pkQuery := `
+		SELECT tc.TABLE_NAME, kcu.COLUMN_NAME
+		FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+		JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+		  ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+		  AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+		WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY';
+	`
+	pkRows, err := db.QueryContext(ctx, pkQuery)
+	pkMap := make(map[string]string)
+	if err == nil {
+		defer pkRows.Close()
+		for pkRows.Next() {
+			var tbl, col string
+			if err := pkRows.Scan(&tbl, &col); err == nil {
+				pkMap[tbl] = col
+			}
+		}
+	}
+
+	// 3. Fetch columns for each table
+	colQuery := `
+		SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COALESCE(COLUMN_DEFAULT, '')
+		FROM INFORMATION_SCHEMA.COLUMNS
+		ORDER BY TABLE_NAME, ORDINAL_POSITION;
+	`
+	colRows, err := db.QueryContext(ctx, colQuery)
+	if err != nil {
+		return nil, fmt.Errorf("query mssql columns: %w", err)
+	}
+	defer colRows.Close()
+
+	colsByTable := make(map[string][]ColumnInfo)
+	for colRows.Next() {
+		var tbl, col, dt, nullable, defVal string
+		if err := colRows.Scan(&tbl, &col, &dt, &nullable, &defVal); err != nil {
+			return nil, err
+		}
+		isPK := pkMap[tbl] == col
+		colsByTable[tbl] = append(colsByTable[tbl], ColumnInfo{
+			Name:         col,
+			DataType:     dt,
+			IsNullable:   strings.EqualFold(nullable, "YES"),
+			DefaultValue: defVal,
+			IsPrimaryKey: isPK,
+		})
+	}
+
+	for i := range tables {
+		tables[i].PrimaryKey = pkMap[tables[i].Name]
+		if tables[i].PrimaryKey == "" && len(colsByTable[tables[i].Name]) > 0 {
+			for _, col := range colsByTable[tables[i].Name] {
+				if strings.EqualFold(col.Name, "id") {
+					tables[i].PrimaryKey = col.Name
+					break
+				}
+			}
+		}
+		tables[i].Columns = colsByTable[tables[i].Name]
+	}
+
+	return &SchemaInfo{
+		Tables:    tables,
+		Timestamp: time.Now().Unix(),
+	}, nil
+}
+

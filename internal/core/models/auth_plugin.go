@@ -42,7 +42,6 @@ const (
 	PluginKeyAuth   = "key-auth"
 	PluginBasicAuth = "basic-auth"
 	PluginJWTAuth   = "jwt-auth"
-	PluginOAuth2    = "oauth2"
 	PluginHMACAuth  = "hmac-auth"
 )
 
@@ -57,7 +56,7 @@ const (
 
 // ValidInboundPlugins returns all valid inbound auth plugin names
 func ValidInboundPlugins() []string {
-	return []string{PluginKeyAuth, PluginBasicAuth, PluginJWTAuth, PluginOAuth2, PluginHMACAuth}
+	return []string{PluginKeyAuth, PluginBasicAuth, PluginJWTAuth, PluginHMACAuth}
 }
 
 // ValidOutboundTypes returns all valid outbound auth type names

@@ -48,6 +48,7 @@ func TestOAuth2CCManager_TokenExchangeAndCache(t *testing.T) {
 	defer mockServer.Close()
 
 	manager := NewOAuth2CCManager(mockServer.Client())
+	manager.AllowInsecureEgress = true
 
 	// 1. Initial exchange
 	token, err := manager.GetToken(mockServer.URL, "test-client", "test-secret", "read write")
@@ -88,6 +89,7 @@ func TestOAuth2CCManager_ProactiveRefreshBuffer(t *testing.T) {
 	defer mockServer.Close()
 
 	manager := NewOAuth2CCManager(mockServer.Client())
+	manager.AllowInsecureEgress = true
 
 	token1, err := manager.GetToken(mockServer.URL, "client", "secret", "")
 	if err != nil {
@@ -135,6 +137,7 @@ func TestOAuth2CCManager_SingleflightDeduplication(t *testing.T) {
 	defer mockServer.Close()
 
 	manager := NewOAuth2CCManager(mockServer.Client())
+	manager.AllowInsecureEgress = true
 
 	concurrency := 20
 	var wg sync.WaitGroup
@@ -182,7 +185,9 @@ func TestOutboundInjector_OAuth2CC_Negotiator(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	injector.SetOAuth2CCManager(NewOAuth2CCManager(mockServer.Client()))
+	ccMgr := NewOAuth2CCManager(mockServer.Client())
+	ccMgr.AllowInsecureEgress = true
+	injector.SetOAuth2CCManager(ccMgr)
 
 	plainSecret := "real-oauth-client-secret"
 	encSecret, _ := crypto.EncryptPassword(normKey, plainSecret)
@@ -218,3 +223,24 @@ func TestOutboundInjector_OAuth2CC_Negotiator(t *testing.T) {
 		t.Errorf("got %s, want Bearer token-injected-bearer-999", authHeader)
 	}
 }
+
+func TestOAuth2CCManager_SSRFProtection(t *testing.T) {
+	manager := NewOAuth2CCManager()
+
+	blockedURLs := []string{
+		"http://127.0.0.1:8080/token",
+		"http://localhost:8080/token",
+		"http://169.254.169.254/latest/meta-data/",
+		"http://10.0.0.1/oauth/token",
+		"http://172.16.0.1/oauth/token",
+		"http://192.168.1.1/oauth/token",
+	}
+
+	for _, u := range blockedURLs {
+		_, err := manager.GetToken(u, "client", "secret", "")
+		if err == nil {
+			t.Errorf("expected SSRF error for token URL %q, got nil", u)
+		}
+	}
+}
+

@@ -21,11 +21,12 @@ func NewMySQLConnector() *MySQLConnector {
 
 // BuildConnectionString builds a MySQL connection string
 func (c *MySQLConnector) BuildConnectionString(host string, port int, dbname, username, password string) string {
+	encodedUser := url.QueryEscape(username)
 	encodedPassword := url.QueryEscape(password)
 
 	return fmt.Sprintf(
 		"%s:%s@tcp(%s:%d)/%s?parseTime=true&timeout=5s",
-		username, encodedPassword, host, port, dbname,
+		encodedUser, encodedPassword, host, port, dbname,
 	)
 }
 

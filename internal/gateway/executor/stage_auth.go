@@ -34,16 +34,18 @@ func (s *authStage) Execute(c *pipeline.Context) error {
 		var consumerID string
 		var groupID string
 
-		// Authenticate inbound request via deep auth.Engine (plugins OR resolution with fallback)
+		// Authenticate inbound request and verify route authorization atomically via deep auth.Engine
 		if s.handler.authEngine != nil {
 			authResult, err := s.handler.authEngine.Authenticate(r, endpoint, endpoint.ServiceID)
 			if err != nil {
 				errStr := err.Error()
-				c.SetError(http.StatusUnauthorized, errStr)
 				if authErr, ok := err.(*auth.Error); ok {
+					c.SetError(authErr.StatusCode, authErr.Message)
 					c.StatusCode = authErr.StatusCode
 					responder.Error(rec, r, authErr.StatusCode, authErr.Code, authErr.Message)
 				} else {
+					c.SetError(http.StatusUnauthorized, errStr)
+					c.StatusCode = http.StatusUnauthorized
 					responder.Error(rec, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, errStr)
 				}
 				return nil
@@ -52,16 +54,6 @@ func (s *authStage) Execute(c *pipeline.Context) error {
 				consumerID = authResult.ConsumerID
 				groupID = authResult.GroupID
 				c.AuthType = authResult.AuthType
-			}
-		}
-
-		// Authorization Check: Verify Consumer has access to this Route
-		if s.handler.reader != nil {
-			allowed, err := s.handler.reader.IsAPIClientAllowedForEndpoint(consumerID, endpoint.ID)
-			if err != nil || !allowed {
-				c.SetError(http.StatusForbidden, "Access to this endpoint is forbidden for consumer")
-				responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, "Access to this endpoint is forbidden for consumer")
-				return nil
 			}
 		}
 

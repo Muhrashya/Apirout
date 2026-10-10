@@ -29,6 +29,14 @@ func TestValidateSQL_ForbiddenKeywords(t *testing.T) {
 		"ALTER TABLE users ADD COLUMN age int",
 		"SELECT * FROM users; SELECT pg_sleep(5)",
 		"SELECT xp_cmdshell('dir')",
+		"SELECT pg_read_binary_file('/etc/passwd')",
+		"SELECT * FROM accounts WHERE id = 1 AND SLEEP(5)",
+		"SELECT BENCHMARK(1000000, MD5(1))",
+		"SELECT * FROM logs INTO OUTFILE '/var/log/out.txt'",
+		"SELECT * FROM logs INTO DUMPFILE '/var/log/out.bin'",
+		"SELECT LOAD_FILE('/etc/shadow')",
+		"SELECT lo_export(1234, '/tmp/target')",
+		"SELECT lo_import('/tmp/source')",
 	}
 
 	for _, q := range forbiddenQueries {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/apirout/apirout/internal/console/publisher"
 	"github.com/apirout/apirout/internal/console/registry"
+	"github.com/apirout/apirout/internal/core/egress"
 	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/core/models"
 	"github.com/gorilla/mux"
@@ -212,6 +213,17 @@ func (h *UpstreamsHandler) CreateTarget(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	targetHost := req.Host
+	if targetHost == "" && req.Target != "" {
+		targetHost = req.Target
+	}
+	if targetHost != "" {
+		if err := egress.ValidateSafeHost(targetHost, egress.Policy{AllowPrivate: true}); err != nil {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid target host: "+err.Error())
+			return
+		}
+	}
+
 	if req.Weight <= 0 {
 		req.Weight = 100
 	}
@@ -259,6 +271,17 @@ func (h *UpstreamsHandler) UpdateTarget(w http.ResponseWriter, r *http.Request) 
 	}
 	if req.Host != "" {
 		existing.Host = req.Host
+	}
+
+	targetHost := req.Host
+	if targetHost == "" && req.Target != "" {
+		targetHost = req.Target
+	}
+	if targetHost != "" {
+		if err := egress.ValidateSafeHost(targetHost, egress.Policy{AllowPrivate: true}); err != nil {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid target host: "+err.Error())
+			return
+		}
 	}
 	if req.Port > 0 {
 		existing.Port = req.Port

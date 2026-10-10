@@ -22,12 +22,8 @@ import (
 	"github.com/apirout/apirout/internal/gateway/pipeline"
 	"github.com/apirout/apirout/internal/gateway/registry"
 	"github.com/apirout/apirout/internal/gateway/responder"
+	"github.com/apirout/apirout/internal/gateway/targetpool"
 	"github.com/google/uuid"
-)
-
-var (
-	rrCounters  sync.Map // upstreamID -> *uint64
-	activeConns sync.Map // targetID -> *int64
 )
 
 // Handler handles dynamic API requests for published routes and endpoints
@@ -38,6 +34,7 @@ type Handler struct {
 	authEngine       *auth.Engine
 	outboundInjector *auth.OutboundInjector
 	instantHandler   *InstantCRUDHandler
+	targetPool       targetpool.TargetPool
 	rateLimiter      *tokenBucketLimiter
 	proxyTransports  sync.Map // serviceID -> *http.Transport
 	router           atomic.Pointer[router.RadixRouter]
@@ -55,6 +52,7 @@ func NewHandler(executor *Service, reader *registry.Reader, apiClientAuth *apicl
 		authEngine:       authEngine,
 		outboundInjector: outboundInjector,
 		instantHandler:   instantHandler,
+		targetPool:       targetpool.New(),
 		rateLimiter:      newTokenBucketLimiter(),
 		circuitBreaker:   upstream.NewPassiveCircuitBreaker(3, 15*time.Second),
 	}
@@ -107,6 +105,18 @@ func (h *Handler) ReloadRouterFromDB() error {
 // GetCircuitBreaker returns the passive circuit breaker instance
 func (h *Handler) GetCircuitBreaker() *upstream.PassiveCircuitBreaker {
 	return h.circuitBreaker
+}
+
+// GetTargetPool returns the upstream target load-balancing pool
+func (h *Handler) GetTargetPool() targetpool.TargetPool {
+	return h.targetPool
+}
+
+// SetTargetPool configures the upstream target load-balancing pool
+func (h *Handler) SetTargetPool(pool targetpool.TargetPool) {
+	if pool != nil {
+		h.targetPool = pool
+	}
 }
 
 // OnTargetHealthChanged updates the circuit breaker state based on Control Plane health events
@@ -426,69 +436,6 @@ func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, en
 	proxy.ServeHTTP(w, r)
 	if upDuration != nil {
 		*upDuration = int(time.Since(upStart).Milliseconds())
-	}
-}
-
-// selectTarget chooses a target instance using the specified Upstream algorithm
-func selectTarget(targets []models.Target, algorithm string, clientIP string, r *http.Request, upstreamID string) *models.Target {
-	if len(targets) == 0 {
-		return nil
-	}
-	if len(targets) == 1 {
-		return &targets[0]
-	}
-
-	switch strings.ToLower(algorithm) {
-	case "round-robin":
-		val, _ := rrCounters.LoadOrStore(upstreamID, new(uint64))
-		counter := val.(*uint64)
-		idx := atomic.AddUint64(counter, 1) % uint64(len(targets))
-		return &targets[idx]
-
-	case "consistent-hashing":
-		hashKey := clientIP
-		if hVal := r.Header.Get("X-User-ID"); hVal != "" {
-			hashKey = hVal
-		} else if hVal := r.Header.Get("X-Consumer-ID"); hVal != "" {
-			hashKey = hVal
-		}
-		var h uint32
-		for i := 0; i < len(hashKey); i++ {
-			h = 31*h + uint32(hashKey[i])
-		}
-		idx := int(h) % len(targets)
-		if idx < 0 {
-			idx = -idx
-		}
-		return &targets[idx]
-
-	case "least-connections":
-		var minConn int64 = 1<<62 - 1
-		var selected *models.Target = &targets[0]
-		for i := range targets {
-			c, _ := activeConns.LoadOrStore(targets[i].ID, new(int64))
-			count := atomic.LoadInt64(c.(*int64))
-			if count < minConn {
-				minConn = count
-				selected = &targets[i]
-			}
-		}
-		return selected
-
-	default: // round-robin fallback
-		val, _ := rrCounters.LoadOrStore(upstreamID, new(uint64))
-		counter := val.(*uint64)
-		idx := atomic.AddUint64(counter, 1) % uint64(len(targets))
-		return &targets[idx]
-	}
-}
-
-func trackTargetConn(targetID string) func() {
-	val, _ := activeConns.LoadOrStore(targetID, new(int64))
-	counter := val.(*int64)
-	atomic.AddInt64(counter, 1)
-	return func() {
-		atomic.AddInt64(counter, -1)
 	}
 }
 

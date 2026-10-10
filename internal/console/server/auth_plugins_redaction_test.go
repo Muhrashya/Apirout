@@ -81,3 +81,58 @@ func TestRedactOutboundAuthConfig_Empty(t *testing.T) {
 		t.Errorf("expected '{}' for '{}' input, got: %s", got)
 	}
 }
+
+func TestEncryptAndRedactInboundAuthConfig(t *testing.T) {
+	key := []byte("test-32-byte-key-for-encryption!")
+
+	rawConfig := `{
+		"header_names": ["Authorization"],
+		"secret": "super-secret-hmac-key-2026",
+		"password": "plain-admin-password"
+	}`
+
+	// 1. Encrypt before DB storage
+	encrypted, err := EncryptInboundAuthConfig(rawConfig, key)
+	if err != nil {
+		t.Fatalf("EncryptInboundAuthConfig failed: %v", err)
+	}
+
+	var encMap map[string]interface{}
+	if err := json.Unmarshal([]byte(encrypted), &encMap); err != nil {
+		t.Fatalf("failed to parse encrypted JSON: %v", err)
+	}
+
+	// Plaintext fields must be removed
+	if _, hasPlainSecret := encMap["secret"]; hasPlainSecret {
+		t.Errorf("plaintext 'secret' should be removed from encrypted config")
+	}
+	if _, hasPlainPassword := encMap["password"]; hasPlainPassword {
+		t.Errorf("plaintext 'password' should be removed from encrypted config")
+	}
+
+	// Encrypted fields must exist
+	if encSecret, ok := encMap["secret_encrypted"].(string); !ok || encSecret == "" {
+		t.Errorf("expected 'secret_encrypted' string, got: %v", encMap["secret_encrypted"])
+	}
+	if encPass, ok := encMap["password_encrypted"].(string); !ok || encPass == "" {
+		t.Errorf("expected 'password_encrypted' string, got: %v", encMap["password_encrypted"])
+	}
+
+	// 2. Redact on API response
+	redacted := RedactInboundAuthConfig(encrypted)
+	var redMap map[string]interface{}
+	if err := json.Unmarshal([]byte(redacted), &redMap); err != nil {
+		t.Fatalf("failed to parse redacted JSON: %v", err)
+	}
+
+	if redMap["secret_configured"] != true {
+		t.Errorf("expected secret_configured == true")
+	}
+	if redMap["password_configured"] != true {
+		t.Errorf("expected password_configured == true")
+	}
+	if redMap["secret_encrypted"] != true {
+		t.Errorf("expected secret_encrypted == true (boolean marker), got: %v", redMap["secret_encrypted"])
+	}
+}
+

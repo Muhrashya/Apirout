@@ -24,6 +24,12 @@ func NewUserHandler(reg *registry.Registry) *UserHandler {
 
 // List returns all users
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil || !auth.IsSuperAdmin(claims.Role) {
+		httputil.WriteJSONError(w, http.StatusForbidden, "Only Super Admin can list users")
+		return
+	}
+
 	users, err := h.registry.ListUsers()
 	if err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to list users")

@@ -147,6 +147,7 @@ func TestE2E_Outbound_OAuth2CC_TokenGrantAndInjection(t *testing.T) {
 	defer upstreamServer.Close()
 
 	injector := auth.NewOutboundInjector("test-encryption-key-for-outbound-creds")
+	injector.OAuth2CCManager().AllowInsecureEgress = true
 
 	cfgJSON, _ := json.Marshal(map[string]interface{}{
 		"token_url":     tokenServer.URL,

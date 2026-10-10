@@ -1172,7 +1172,6 @@ export default function ConsumersPage() {
                                 <option value="basic-auth">Basic Auth Password (HTTP Basic Authorization)</option>
                                 <option value="jwt">JWT Token Key / Shared Secret</option>
                                 <option value="hmac-auth">HMAC-SHA256 Shared Secret</option>
-                                <option value="oauth2">OAuth 2.0 Client Secret</option>
                             </select>
                         </div>
 

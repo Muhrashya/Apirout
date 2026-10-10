@@ -828,6 +828,34 @@ export default function ServiceFormPage() {
                             {/* OAuth2 Client Credentials Form */}
                             {outboundAuth.auth_type === 'oauth2-cc' && (
                                 <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '12px' }}>
+                                        <div>
+                                            <label className="label">Token URL *</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="https://auth.example.com/oauth/token"
+                                                value={outboundAuth.config.token_url || ''}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, token_url: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="label">Scopes (Optional)</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="e.g. read write"
+                                                value={outboundAuth.config.scopes || ''}
+                                                onChange={e => setOutboundAuth(prev => ({
+                                                    ...prev,
+                                                    config: { ...prev.config, scopes: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                    </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                                         <div>
                                             <label className="label">Client ID *</label>

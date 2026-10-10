@@ -1,20 +1,17 @@
 package server
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/apirout/apirout/internal/console/auth"
-	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/console/registry"
+	"github.com/apirout/apirout/internal/core/crypto"
+	"github.com/apirout/apirout/internal/core/egress"
+	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/core/introspection"
 	"github.com/apirout/apirout/internal/core/targets"
 
@@ -423,6 +420,15 @@ func (h *ConnectionHandler) TestRaw(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// SSRF Protection: Prevent probing internal loopback, link-local metadata, or private IP ranges
+	if req.DBType != "sqlite" {
+		if err := egress.ValidateSafeHost(req.Host); err != nil {
+			errMsg := fmt.Sprintf("Security violation: %v", err)
+			httputil.WriteJSON(w, http.StatusBadRequest, TestConnectionResponse{Success: false, Error: &errMsg})
+			return
+		}
+	}
+
 	connString, err := targets.BuildConnectionString(req.DBType, req.Host, req.Port, req.DBName, req.Username, req.Password, req.SSLMode)
 	if err != nil {
 		errMsg := "Invalid configuration: " + err.Error()
@@ -560,62 +566,11 @@ func (h *ConnectionHandler) checkConnectionAccess(claims *auth.Claims, conn *reg
 }
 
 func encryptString(plaintext, key string) (string, error) {
-	if plaintext == "" {
-		return "", nil
-	}
-
-	// Use random IV
-	keyBytes := make([]byte, 32)
-	copy(keyBytes, []byte(key))
-
-	block, err := aes.NewCipher(keyBytes)
-	if err != nil {
-		return "", err
-	}
-
-	// Generate random IV
-	iv := make([]byte, aes.BlockSize)
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return "", err
-	}
-
-	ciphertext := make([]byte, len(plaintext))
-	stream := cipher.NewCFBEncrypter(block, iv)
-	stream.XORKeyStream(ciphertext, []byte(plaintext))
-
-	result := append(iv, ciphertext...)
-	return base64.StdEncoding.EncodeToString(result), nil
+	return crypto.EncryptPassword(crypto.NormalizeKey(key), plaintext)
 }
 
 func decryptString(encrypted, key string) (string, error) {
-	if encrypted == "" {
-		return "", nil
-	}
-
-	data, err := base64.StdEncoding.DecodeString(encrypted)
-	if err != nil {
-		return encrypted, nil // assume plaintext
-	}
-
-	keyBytes := make([]byte, 32)
-	copy(keyBytes, []byte(key))
-
-	block, err := aes.NewCipher(keyBytes)
-	if err != nil {
-		return "", err
-	}
-
-	if len(data) < aes.BlockSize {
-		return encrypted, nil
-	}
-
-	iv := data[:aes.BlockSize]
-	ciphertext := data[aes.BlockSize:]
-
-	stream := cipher.NewCFBDecrypter(block, iv)
-	stream.XORKeyStream(ciphertext, ciphertext)
-
-	return string(ciphertext), nil
+	return crypto.DecryptPassword(crypto.NormalizeKey(key), encrypted)
 }
 
 // Introspect introspects the tables and columns of a connection

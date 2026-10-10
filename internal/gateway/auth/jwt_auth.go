@@ -14,6 +14,11 @@ type JWTAuthPlugin struct {
 	secret []byte // default HMAC secret
 }
 
+// NewJWTAuthPlugin creates a new JWT authentication plugin
+func NewJWTAuthPlugin(secret []byte) *JWTAuthPlugin {
+	return &JWTAuthPlugin{secret: secret}
+}
+
 // Name returns the plugin name
 func (p *JWTAuthPlugin) Name() string { return "jwt-auth" }
 
@@ -92,6 +97,16 @@ func (p *JWTAuthPlugin) Authenticate(r *http.Request, config map[string]interfac
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	// Cryptographic Plane Separation: Explicitly reject Control Plane administrator tokens
+	if typ, ok := claims["typ"].(string); ok && strings.EqualFold(typ, "admin") {
+		return nil, fmt.Errorf("cross-plane token rejected: administrative token cannot access data plane")
+	}
+	if role, ok := claims["role"].(string); ok && (strings.EqualFold(role, "SUPER_ADMIN") || strings.EqualFold(role, "ADMIN")) {
+		if _, hasUserID := claims["user_id"]; hasUserID {
+			return nil, fmt.Errorf("cross-plane token rejected: administrative token cannot access data plane")
+		}
 	}
 
 	// Try to resolve consumer ID from claims

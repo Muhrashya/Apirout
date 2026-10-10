@@ -82,40 +82,101 @@ func (e *Engine) Register(p Plugin) {
 //   3. Service-level plugins
 //   4. Global plugins (least specific)
 //   5. Fallback credential evaluation (API key or JWT token)
+//   6. Consumer route authorization check
 //
 // Multiple plugins at the same level use OR logic (first match wins).
 func (e *Engine) Authenticate(r *http.Request, endpoint *models.Endpoint, serviceID *string) (*AuthResult, error) {
 	// Skip auth for public endpoints
-	if endpoint.IsPublic {
+	if endpoint != nil && endpoint.IsPublic {
 		return nil, nil
 	}
 
+	var result *AuthResult
+	var authErr error
+
 	if e.reader == nil {
-		return e.authenticateFallback(r)
-	}
-
-	// 1. Try Route-level plugins
-	routePlugins, _ := e.reader.GetAuthPluginsForRoute(endpoint.ID)
-	if len(routePlugins) > 0 {
-		return e.tryPlugins(r, routePlugins)
-	}
-
-	// 2. Try Service-level plugins
-	if serviceID != nil && *serviceID != "" {
-		servicePlugins, _ := e.reader.GetAuthPluginsForService(*serviceID)
-		if len(servicePlugins) > 0 {
-			return e.tryPlugins(r, servicePlugins)
+		result, authErr = e.authenticateFallback(r)
+	} else {
+		// 1. Try Route-level plugins
+		var routePlugins []models.AuthPluginConfig
+		if endpoint != nil {
+			routePlugins, _ = e.reader.GetAuthPluginsForRoute(endpoint.ID)
+		}
+		if len(routePlugins) > 0 {
+			result, authErr = e.tryPlugins(r, routePlugins)
+		} else if serviceID != nil && *serviceID != "" {
+			// 2. Try Service-level plugins
+			servicePlugins, _ := e.reader.GetAuthPluginsForService(*serviceID)
+			if len(servicePlugins) > 0 {
+				result, authErr = e.tryPlugins(r, servicePlugins)
+			} else {
+				// 3. Try Global plugins
+				globalPlugins, _ := e.reader.GetGlobalAuthPlugins()
+				if len(globalPlugins) > 0 {
+					result, authErr = e.tryPlugins(r, globalPlugins)
+				} else {
+					// 4. No auth plugins configured — evaluate fallback API key / JWT authentication
+					result, authErr = e.authenticateFallback(r)
+				}
+			}
+		} else {
+			// 3. Try Global plugins
+			globalPlugins, _ := e.reader.GetGlobalAuthPlugins()
+			if len(globalPlugins) > 0 {
+				result, authErr = e.tryPlugins(r, globalPlugins)
+			} else {
+				// 4. No auth plugins configured — evaluate fallback API key / JWT authentication
+				result, authErr = e.authenticateFallback(r)
+			}
 		}
 	}
 
-	// 3. Try Global plugins
-	globalPlugins, _ := e.reader.GetGlobalAuthPlugins()
-	if len(globalPlugins) > 0 {
-		return e.tryPlugins(r, globalPlugins)
+	if authErr != nil {
+		return nil, authErr
 	}
 
-	// 4. No auth plugins configured — evaluate fallback API key / JWT authentication
-	return e.authenticateFallback(r)
+	// 5. Route authorization check: Verify Consumer has access to this Route
+	if result != nil && result.ConsumerID != "" && endpoint != nil && endpoint.ID != "" && e.reader != nil {
+		allowed, err := e.reader.IsAPIClientAllowedForEndpoint(result.ConsumerID, endpoint.ID)
+		if err != nil || !allowed {
+			return nil, &Error{
+				StatusCode: http.StatusForbidden,
+				Code:       responder.ErrCodeForbidden,
+				Message:    "Access to this endpoint is forbidden for consumer",
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// ValidateToken parses and verifies an API client JWT token string
+func (e *Engine) ValidateToken(tokenString string) (*apiclientauth.Claims, error) {
+	if e.apiClientAuth != nil {
+		return e.apiClientAuth.ValidateToken(tokenString)
+	}
+	return nil, &Error{
+		StatusCode: http.StatusUnauthorized,
+		Code:       responder.ErrCodeExpiredToken,
+		Message:    "JWT auth service not configured",
+	}
+}
+
+// GenerateToken creates a signed JWT for an authenticated API client
+func (e *Engine) GenerateToken(client *models.APIClient) (string, time.Time, error) {
+	if e.apiClientAuth != nil {
+		return e.apiClientAuth.GenerateToken(client)
+	}
+	return "", time.Time{}, &Error{
+		StatusCode: http.StatusInternalServerError,
+		Code:       responder.ErrCodeInternalError,
+		Message:    "JWT auth service not configured",
+	}
+}
+
+// ClientAuthService returns the underlying client auth service
+func (e *Engine) ClientAuthService() *apiclientauth.Service {
+	return e.apiClientAuth
 }
 
 // tryPlugins attempts authentication with OR logic (first success wins)

@@ -14,12 +14,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
-	"github.com/apirout/apirout/internal/core/crypto"
-	"github.com/apirout/apirout/internal/gateway/apiclientauth"
-	"github.com/apirout/apirout/internal/gateway/auth"
+	"github.com/apirout/apirout/internal/core/adapter"
 	"github.com/apirout/apirout/internal/core/cache"
+	"github.com/apirout/apirout/internal/core/crypto"
 	"github.com/apirout/apirout/internal/core/introspection"
 	"github.com/apirout/apirout/internal/core/sqldialect"
+	"github.com/apirout/apirout/internal/gateway/apiclientauth"
+	"github.com/apirout/apirout/internal/gateway/auth"
 	"github.com/apirout/apirout/internal/gateway/registry"
 	"github.com/apirout/apirout/internal/gateway/responder"
 )
@@ -96,6 +97,11 @@ func (h *InstantCRUDHandler) AuthenticateRequest(r *http.Request) error {
 
 // getDB retrieves a database connection from the connection pool or falls back to direct connection
 func (h *InstantCRUDHandler) getDB(connID, dbType, connStr string) (*sql.DB, func(), error) {
+	ad, err := adapter.GetAdapter(dbType)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unsupported database type: %s", dbType)
+	}
+
 	if h.connPool != nil {
 		db, err := h.connPool.Get(connID, dbType, connStr)
 		if err != nil {
@@ -103,7 +109,7 @@ func (h *InstantCRUDHandler) getDB(connID, dbType, connStr string) (*sql.DB, fun
 		}
 		return db, func() {}, nil
 	}
-	db, err := sql.Open(dbTypeDriver(dbType), connStr)
+	db, err := ad.Open(connStr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -671,42 +677,30 @@ func (h *InstantCRUDHandler) getTargetConn(ctx context.Context, connID string) (
 		password = ""
 	}
 
-	var connStr string
-	switch conn.DBType {
-	case "postgres", "postgresql":
-		ssl := conn.SSLMode
-		if ssl == "" {
-			ssl = "disable"
-		}
-		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&connect_timeout=5",
-			conn.Username, password, conn.Host, conn.Port, conn.DBName, ssl)
-	case "mysql":
-		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?timeout=5s&parseTime=true",
-			conn.Username, password, conn.Host, conn.Port, conn.DBName)
-	default:
+	ad, err := adapter.GetAdapter(conn.DBType)
+	if err != nil {
 		return "", "", fmt.Errorf("unsupported connection type: %s", conn.DBType)
 	}
 
-	return connStr, conn.DBType, nil
+	connStr := ad.BuildConnectionString(conn.Host, conn.Port, conn.DBName, conn.Username, password, conn.SSLMode)
+	return connStr, ad.DBType(), nil
 }
 
-func dbTypeDriver(dbType string) string {
-	switch dbType {
-	case "postgres", "postgresql":
-		return "postgres"
-	case "mysql":
-		return "mysql"
-	default:
-		return "postgres"
+func dbTypeDriver(dbType string) (string, error) {
+	ad, err := adapter.GetAdapter(dbType)
+	if err != nil {
+		return "", fmt.Errorf("unsupported database driver: %s", dbType)
 	}
+	return ad.DriverName(), nil
 }
 
 func quoteIdentifier(dbType, ident string) string {
+	ad, err := adapter.GetAdapter(dbType)
+	if err == nil {
+		return ad.QuoteIdentifier(ident)
+	}
 	gen, err := sqldialect.GetGenerator(dbType)
 	if err != nil {
-		if dbType == "mysql" {
-			return "`" + ident + "`"
-		}
 		return `"` + ident + `"`
 	}
 	return gen.QuoteIdentifier(ident)

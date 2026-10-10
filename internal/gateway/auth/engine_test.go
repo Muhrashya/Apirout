@@ -107,3 +107,38 @@ func TestEngine_Fallback_JWTAuth(t *testing.T) {
 		t.Errorf("expected %s, got %s", responder.ErrCodeExpiredToken, authErr.Code)
 	}
 }
+
+func TestEngine_AbsorbedClientAuthService(t *testing.T) {
+	secret := "test-secret-key-at-least-32-chars-long!!"
+	acService := apiclientauth.NewService(secret, nil, 1*time.Hour)
+	engine := NewEngine(nil, secret, acService)
+
+	client := &models.APIClient{
+		ID:       "client-123",
+		Username: "deep-module-user",
+	}
+
+	token, expiresAt, err := engine.GenerateToken(client)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+	if token == "" || expiresAt.IsZero() {
+		t.Fatalf("expected non-empty token and expiration")
+	}
+
+	claims, err := engine.ValidateToken(token)
+	if err != nil {
+		t.Fatalf("failed to validate token: %v", err)
+	}
+	if claims.APIClientID != "client-123" {
+		t.Errorf("expected client-123, got %s", claims.APIClientID)
+	}
+
+	// Verify unconfigured service handling
+	unconfiguredEngine := NewEngine(nil, "")
+	_, err = unconfiguredEngine.ValidateToken(token)
+	if err == nil {
+		t.Fatal("expected error from unconfigured engine ValidateToken")
+	}
+}
+

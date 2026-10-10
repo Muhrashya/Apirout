@@ -10,7 +10,7 @@ import (
 
 var (
 	// Forbidden SQL keywords (case-insensitive)
-	forbiddenKeywordsRegex = regexp.MustCompile(`(?i)\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|CREATE|COPY|GRANT|REVOKE|EXECUTE|CALL|PG_READ_FILE|PG_LS_DIR|PG_SLEEP|DBLINK|XML)\b`)
+	forbiddenKeywordsRegex = regexp.MustCompile(`(?i)\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|CREATE|COPY|GRANT|REVOKE|EXECUTE|CALL|PG_READ_FILE|PG_READ_BINARY_FILE|PG_LS_DIR|PG_SLEEP|LO_EXPORT|LO_IMPORT|DBLINK|XP_CMDSHELL|OUTFILE|DUMPFILE|LOAD_FILE|SLEEP|BENCHMARK|WAITFOR|XML)\b`)
 
 	// Pattern to detect multiple statements (semicolon followed by more SQL)
 	multiStatementPattern = regexp.MustCompile(`;\s*\S+`)

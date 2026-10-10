@@ -44,6 +44,8 @@ type Config struct {
 	DataDir            string
 	LogLevel           string
 	JWTSecret          string
+	ConsoleJWTSecret   string // Dedicated JWT secret for Control Plane admin users
+	GatewayJWTSecret   string // Dedicated JWT secret for Data Plane API consumers
 	AdminSecret        string // Hasura-style admin secret for automated/CI access
 	JWTTTL             time.Duration
 	APITokenTTL        time.Duration
@@ -124,6 +126,8 @@ func Load() (*Config, error) {
 		DataDir:            getEnvAny("DATA_DIR", "./data"),
 		LogLevel:           strings.ToLower(getEnvAny("LOG_LEVEL", "APIROUT_LOG_LEVEL", "info")),
 		JWTSecret:          getEnvAny("JWT_SECRET", "APIROUT_JWT_SECRET", "default-jwt-secret-key-min-32-characters!"),
+		ConsoleJWTSecret:   getEnvAny("CONSOLE_JWT_SECRET", "APIROUT_CONSOLE_JWT_SECRET", ""),
+		GatewayJWTSecret:   getEnvAny("GATEWAY_JWT_SECRET", "APIROUT_GATEWAY_JWT_SECRET", ""),
 		AdminSecret:        getEnvAny("ADMIN_SECRET", "APIROUT_ADMIN_SECRET", ""),
 		EncryptionKey:      getEnvAny("APP_ENCRYPTION_KEY", "APIROUT_ENCRYPTION_KEY", "aes-encryption-key-32-chars-ok!"),
 		GlobalRateLimitRPM: getEnvInt("GLOBAL_RATE_LIMIT_RPM", 600),
@@ -164,10 +168,19 @@ func Load() (*Config, error) {
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = "apirout-default-jwt-secret-key-32chars!"
 	}
+	if cfg.ConsoleJWTSecret == "" {
+		cfg.ConsoleJWTSecret = cfg.JWTSecret
+	}
+	if cfg.GatewayJWTSecret == "" {
+		cfg.GatewayJWTSecret = cfg.JWTSecret
+	}
 
 	if cfg.AppEnv == "production" {
-		if len(cfg.JWTSecret) < 32 || cfg.JWTSecret == "default-jwt-secret-key-min-32-characters!" || cfg.JWTSecret == "apirout-default-jwt-secret-key-32chars!" {
-			return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters and must not use default placeholder in production")
+		if len(cfg.ConsoleJWTSecret) < 32 || cfg.ConsoleJWTSecret == "default-jwt-secret-key-min-32-characters!" || cfg.ConsoleJWTSecret == "apirout-default-jwt-secret-key-32chars!" {
+			return nil, fmt.Errorf("CONSOLE_JWT_SECRET (or JWT_SECRET) must be at least 32 characters and must not use default placeholder in production")
+		}
+		if len(cfg.GatewayJWTSecret) < 32 || cfg.GatewayJWTSecret == "default-jwt-secret-key-min-32-characters!" || cfg.GatewayJWTSecret == "apirout-default-jwt-secret-key-32chars!" {
+			return nil, fmt.Errorf("GATEWAY_JWT_SECRET (or JWT_SECRET) must be at least 32 characters and must not use default placeholder in production")
 		}
 		if len(cfg.EncryptionKey) < 32 || cfg.EncryptionKey == "aes-encryption-key-32-chars-ok!" || cfg.EncryptionKey == "aes-encryption-key-32-characters!" {
 			return nil, fmt.Errorf("APP_ENCRYPTION_KEY must be at least 32 characters and must not use default placeholder in production")

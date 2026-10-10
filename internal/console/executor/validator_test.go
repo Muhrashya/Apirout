@@ -34,7 +34,15 @@ func TestValidateSQL(t *testing.T) {
 
 		// Dangerous Functions (Hardened)
 		{"PG Read File", "SELECT pg_read_file('/etc/passwd')", true},
+		{"PG Read Binary File", "SELECT pg_read_binary_file('/etc/shadow')", true},
 		{"PG Sleep", "SELECT pg_sleep(10)", true},
+		{"MySQL Sleep", "SELECT * FROM users WHERE id = 1 AND SLEEP(5)", true},
+		{"MySQL Benchmark", "SELECT BENCHMARK(1000000, MD5(1))", true},
+		{"MySQL Into Outfile", "SELECT * FROM users INTO OUTFILE '/tmp/dump.txt'", true},
+		{"MySQL Into Dumpfile", "SELECT * FROM users INTO DUMPFILE '/tmp/dump.bin'", true},
+		{"MySQL Load File", "SELECT LOAD_FILE('/etc/passwd')", true},
+		{"Postgres Lo Export", "SELECT lo_export(1337, '/tmp/evil')", true},
+		{"Postgres Lo Import", "SELECT lo_import('/tmp/evil')", true},
 	}
 
 	for _, tt := range tests {

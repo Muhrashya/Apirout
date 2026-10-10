@@ -88,7 +88,6 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
     const [jwtVerifyExp, setJwtVerifyExp] = useState(true);
     const [hmacClockSkew, setHmacClockSkew] = useState(300);
     const [hmacAlgo, setHmacAlgo] = useState('hmac-sha256');
-    const [oauthScopes, setOauthScopes] = useState('read, write');
 
     const isStaged = !!stagedMode;
     const currentPlugins = isStaged ? (stagedPlugins || []) : internalPlugins;
@@ -145,8 +144,6 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
             } else if (targetName === 'hmac-auth') {
                 setHmacClockSkew(300);
                 setHmacAlgo('hmac-sha256');
-            } else if (targetName === 'oauth2') {
-                setOauthScopes('read, write');
             }
         }
         setIsAddModalOpen(true);
@@ -182,12 +179,6 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                 algorithms: [hmacAlgo],
                 clock_skew: Number(hmacClockSkew) || 300,
                 enforce_headers: ['date', 'request-line']
-            };
-        } else if (selectedPluginName === 'oauth2') {
-            return {
-                scopes: oauthScopes.split(',').map(s => s.trim()).filter(Boolean),
-                mandatory_scope: false,
-                token_expiration: 7200
             };
         }
         try {
@@ -645,9 +636,7 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                                             {p.plugin_name === 'hmac-auth' && (
                                                 <span>Clock Skew: {parsedConfig?.clock_skew || 300}s</span>
                                             )}
-                                            {p.plugin_name === 'oauth2' && (
-                                                <span>Scopes: {Array.isArray(parsedConfig?.scopes) ? parsedConfig.scopes.join(', ') : 'read, write'}</span>
-                                            )}
+
                                         </div>
                                     </div>
                                 </div>
@@ -885,18 +874,7 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                             </div>
                         )}
 
-                        {selectedPluginName === 'oauth2' && (
-                            <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-                                <label className="label">Accepted Scopes (comma-separated)</label>
-                                <input
-                                    type="text"
-                                    className="input"
-                                    value={oauthScopes}
-                                    onChange={e => setOauthScopes(e.target.value)}
-                                    placeholder="read, write, admin"
-                                />
-                            </div>
-                        )}
+
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                             <button

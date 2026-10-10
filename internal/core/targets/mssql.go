@@ -21,6 +21,7 @@ func NewMSSQLConnector() *MSSQLConnector {
 
 // BuildConnectionString builds a Microsoft SQL Server connection string
 func (c *MSSQLConnector) BuildConnectionString(host string, port int, dbname, username, password string) string {
+	encodedUser := url.QueryEscape(username)
 	encodedPassword := url.QueryEscape(password)
 	if port <= 0 {
 		port = 1433
@@ -28,7 +29,7 @@ func (c *MSSQLConnector) BuildConnectionString(host string, port int, dbname, us
 
 	return fmt.Sprintf(
 		"sqlserver://%s:%s@%s:%d?database=%s&connection+timeout=5&TrustServerCertificate=true",
-		username, encodedPassword, host, port, dbname,
+		encodedUser, encodedPassword, host, port, dbname,
 	)
 }
 

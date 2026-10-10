@@ -65,19 +65,17 @@ func (s *upstreamStage) Execute(c *pipeline.Context) error {
 					return nil
 				}
 
-				algorithm := "round-robin"
-				if upstream != nil && upstream.Algorithm != "" {
-					algorithm = upstream.Algorithm
-				}
-				target := selectTarget(availableTargets, algorithm, c.ClientIP, r, *service.UpstreamID)
-				if target != nil {
-					c.UpstreamURI = fmt.Sprintf("%s://%s:%d%s", service.Protocol, target.Host, target.Port, service.Path)
-					releaseConn := trackTargetConn(target.ID)
-					defer releaseConn()
-					h.reverseProxyRequest(rec, r, endpoint, service, target.Host, target.Port, target.ID, outboundAuth, &c.UpstreamDurationMs)
-					c.MarkHandled()
+				target, releaseConn, err := h.targetPool.SelectTarget(r, upstream, availableTargets)
+				if err != nil || target == nil {
+					c.SetError(http.StatusServiceUnavailable, "no healthy upstream targets available")
+					responder.Error(rec, r, http.StatusServiceUnavailable, responder.ErrCodeNoHealthyTargets, "no healthy upstream targets available")
 					return nil
 				}
+				defer releaseConn()
+				c.UpstreamURI = fmt.Sprintf("%s://%s:%d%s", service.Protocol, target.Host, target.Port, service.Path)
+				h.reverseProxyRequest(rec, r, endpoint, service, target.Host, target.Port, target.ID, outboundAuth, &c.UpstreamDurationMs)
+				c.MarkHandled()
+				return nil
 			}
 
 			// Case B: Service points directly to a backend host/port

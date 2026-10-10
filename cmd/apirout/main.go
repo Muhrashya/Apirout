@@ -15,6 +15,7 @@ import (
 	"github.com/apirout/apirout/internal/config"
 	consoleApp "github.com/apirout/apirout/internal/console/app"
 	"github.com/apirout/apirout/internal/console/registry"
+	"github.com/apirout/apirout/internal/core/iputil"
 	gatewayApp "github.com/apirout/apirout/internal/gateway/app"
 )
 
@@ -41,6 +42,9 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+
+	// Synchronize runtime trusted proxy policy with environment configuration
+	iputil.SetGlobalTrustedProxies(cfg.TrustedProxies)
 
 	logger := newLogger(cfg)
 

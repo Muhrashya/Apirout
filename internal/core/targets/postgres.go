@@ -21,6 +21,7 @@ func NewPostgresConnector() *PostgresConnector {
 
 // BuildConnectionString builds a Postgres connection string
 func (c *PostgresConnector) BuildConnectionString(host string, port int, dbname, username, password, sslmode string) string {
+	encodedUser := url.QueryEscape(username)
 	encodedPassword := url.QueryEscape(password)
 
 	if sslmode == "" {
@@ -29,7 +30,7 @@ func (c *PostgresConnector) BuildConnectionString(host string, port int, dbname,
 
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=%s&connect_timeout=5",
-		username, encodedPassword, host, port, dbname, sslmode,
+		encodedUser, encodedPassword, host, port, dbname, sslmode,
 	)
 }
 

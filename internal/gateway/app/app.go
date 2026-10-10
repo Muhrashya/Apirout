@@ -67,16 +67,16 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		endpointCache, connPool, countCache, logger,
 	)
 
-	apiClientAuthService := apiclientauth.NewService(cfg.JWTSecret, reader, cfg.APITokenTTL)
+	apiClientAuthService := apiclientauth.NewService(cfg.GatewayJWTSecret, reader, cfg.APITokenTTL)
 	executorService := executor.NewService(reader, cfg.EncryptionKey, endpointCache, connPool, countCache)
 
 	loginLimiter := middleware.NewRateLimiter(10, time.Minute, true)
 	app.closers = append(app.closers, loginLimiter.Stop)
 
 	apiClientHandler := apiclientauth.NewHandler(apiClientAuthService)
-	authEngine := auth.NewEngine(reader, cfg.JWTSecret)
+	authEngine := auth.NewEngine(reader, cfg.GatewayJWTSecret)
 	outboundInjector := auth.NewOutboundInjector(cfg.EncryptionKey)
-	instantHandler := executor.NewInstantCRUDHandler(reader, cfg.EncryptionKey, connPool, apiClientAuthService, cfg.AdminSecret, cfg.JWTSecret)
+	instantHandler := executor.NewInstantCRUDHandler(reader, cfg.EncryptionKey, connPool, apiClientAuthService, cfg.AdminSecret, cfg.GatewayJWTSecret)
 	executorHandler := executor.NewHandler(executorService, reader, apiClientAuthService, authEngine, outboundInjector, instantHandler)
 
 	// Wire zero-downtime atomic pointer swapping on EventBus route invalidation

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apirout/apirout/internal/core/egress"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -20,10 +21,11 @@ type cachedOAuthToken struct {
 
 // OAuth2CCManager coordinates OAuth2 Client Credentials token exchanges, caching, and concurrency deduplication
 type OAuth2CCManager struct {
-	client       *http.Client
-	requestGroup singleflight.Group
-	cacheMu      sync.RWMutex
-	cache        map[string]*cachedOAuthToken
+	client              *http.Client
+	requestGroup        singleflight.Group
+	cacheMu             sync.RWMutex
+	cache               map[string]*cachedOAuthToken
+	AllowInsecureEgress bool
 }
 
 // NewOAuth2CCManager creates a new OAuth2 client credentials manager
@@ -48,6 +50,15 @@ func (m *OAuth2CCManager) GetToken(tokenURL, clientID, clientSecret, scopes stri
 	}
 	if clientSecret == "" {
 		return "", fmt.Errorf("oauth2-cc: client_secret required")
+	}
+
+	// SSRF Protection: Prevent connecting to loopback, link-local metadata, or private networks
+	var egressOpts []egress.Policy
+	if m.AllowInsecureEgress {
+		egressOpts = append(egressOpts, egress.Policy{AllowLoopback: true, AllowPrivate: true})
+	}
+	if err := egress.ValidateSafeURL(tokenURL, egressOpts...); err != nil {
+		return "", fmt.Errorf("oauth2-cc: %w", err)
 	}
 
 	cacheKey := fmt.Sprintf("%s|%s|%s", tokenURL, clientID, scopes)

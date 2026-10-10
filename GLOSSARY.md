@@ -110,3 +110,12 @@ An ingress protection mechanism operating at the HTTP listener boundary that cap
 ### Bastion Host Key Policy
 An environment-aware verification control that validates remote SSH server public key fingerprints when tunneling database connections through an SSH jump host, preventing Man-in-the-Middle credential interception.
 
+### Outbound Credential Negotiator
+An outbound gateway authentication module operating at the reverse proxy upstream seam that autonomously manages upstream credentials, including RFC-compliant AWS SigV4 canonical request signing and asynchronous OAuth2 Client Credentials grant token retrieval, caching, and TTL refresh.
+
+### Database Adapter Seam
+A consolidated database interaction port encapsulating connection pooling, SSH bastion tunneling, schema introspection, dialect query generation, and instant CRUD execution behind a unified engine contract for PostgreSQL, MySQL, and Microsoft SQL Server.
+
+### Consistent Hash Ring
+An upstream load-balancing implementation in the Target Pool module utilizing Ketama-style virtual node distribution on a 32-bit integer ring, ensuring that adding or removing upstream targets redistributes at most 1/N of keys to preserve cache and session locality.
+

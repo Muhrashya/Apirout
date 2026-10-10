@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/console/registry"
+	"github.com/apirout/apirout/internal/core/egress"
+	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/core/models"
 	"github.com/gorilla/mux"
 )
@@ -75,6 +76,13 @@ func (h *ServicesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Host != "" {
+		if err := egress.ValidateSafeHost(req.Host, egress.Policy{AllowPrivate: true}); err != nil {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid service host: "+err.Error())
+			return
+		}
+	}
+
 	if req.Port == 0 {
 		if req.Protocol == "https" {
 			req.Port = 443
@@ -124,6 +132,13 @@ func (h *ServicesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
+	}
+
+	if req.Host != "" {
+		if err := egress.ValidateSafeHost(req.Host, egress.Policy{AllowPrivate: true}); err != nil {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid service host: "+err.Error())
+			return
+		}
 	}
 
 	if req.Name != "" {

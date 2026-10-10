@@ -85,7 +85,7 @@ func buildAdminAPIRouter(d routerDeps) *mux.Router {
 
 	// Users management (SUPER_ADMIN only)
 	userHandler := server.NewUserHandler(d.reg)
-	adminRouter.Handle("/users", http.HandlerFunc(userHandler.List)).Methods("GET")
+	adminRouter.Handle("/users", d.authService.RequireRole("SUPER_ADMIN")(http.HandlerFunc(userHandler.List))).Methods("GET")
 	adminRouter.Handle("/users", d.authService.RequireRole("SUPER_ADMIN")(http.HandlerFunc(userHandler.Create))).Methods("POST")
 	adminRouter.Handle("/users/{id}", d.authService.RequireRole("SUPER_ADMIN")(http.HandlerFunc(userHandler.Update))).Methods("PUT")
 	adminRouter.Handle("/users/{id}", d.authService.RequireRole("SUPER_ADMIN")(http.HandlerFunc(userHandler.Delete))).Methods("DELETE")

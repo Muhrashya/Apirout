@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,3 +127,53 @@ func TestJWTAuthPlugin_MissingAlgHeader(t *testing.T) {
 		t.Fatal("expected error for token with missing alg, got nil")
 	}
 }
+
+func TestJWTAuthPlugin_RejectAdminCrossPlaneToken(t *testing.T) {
+	secret := []byte("shared-or-dedicated-secret-key-32ch")
+	p := &JWTAuthPlugin{secret: secret}
+
+	// 1. Admin token with typ: admin
+	adminToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":     "admin-user-id",
+		"user_id": "admin-user-id",
+		"email":   "admin@example.com",
+		"role":    "SUPER_ADMIN",
+		"typ":     "admin",
+	})
+	adminTokenStr, err := adminToken.SignedString(secret)
+	if err != nil {
+		t.Fatalf("failed to sign admin token: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+adminTokenStr)
+
+	_, err = p.Authenticate(req, map[string]interface{}{}, nil)
+	if err == nil {
+		t.Fatal("expected admin token to be rejected by gateway jwt auth, but it was accepted")
+	}
+	if !strings.Contains(err.Error(), "cross-plane token rejected") {
+		t.Errorf("expected cross-plane token error, got: %v", err)
+	}
+
+	// 2. Legitimate consumer token with sub should succeed
+	consumerToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "consumer-client-id",
+	})
+	consumerTokenStr, err := consumerToken.SignedString(secret)
+	if err != nil {
+		t.Fatalf("failed to sign consumer token: %v", err)
+	}
+
+	req2 := httptest.NewRequest("GET", "/api/v1/protected", nil)
+	req2.Header.Set("Authorization", "Bearer "+consumerTokenStr)
+
+	res, err := p.Authenticate(req2, map[string]interface{}{}, nil)
+	if err != nil {
+		t.Fatalf("expected consumer token to be accepted, got error: %v", err)
+	}
+	if res.ConsumerID != "consumer-client-id" {
+		t.Errorf("expected consumer ID 'consumer-client-id', got %s", res.ConsumerID)
+	}
+}
+

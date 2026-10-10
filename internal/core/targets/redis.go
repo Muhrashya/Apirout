@@ -3,6 +3,7 @@ package targets
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -40,10 +41,12 @@ func (c *RedisConnector) BuildConnectionString(host string, port int, dbIndexStr
 	}
 
 	if password != "" {
+		encodedPassword := url.QueryEscape(password)
 		if username != "" && username != "default" {
-			return fmt.Sprintf("%s://%s:%s@%s:%d/%d", scheme, username, password, host, port, db)
+			encodedUser := url.QueryEscape(username)
+			return fmt.Sprintf("%s://%s:%s@%s:%d/%d", scheme, encodedUser, encodedPassword, host, port, db)
 		}
-		return fmt.Sprintf("%s://:%s@%s:%d/%d", scheme, password, host, port, db)
+		return fmt.Sprintf("%s://:%s@%s:%d/%d", scheme, encodedPassword, host, port, db)
 	}
 
 	return fmt.Sprintf("%s://%s:%d/%d", scheme, host, port, db)
