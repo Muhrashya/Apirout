@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/apirout/apirout/internal/console/registry"
@@ -67,12 +68,20 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+type userState struct {
+	valid             bool
+	passwordChangedAt *time.Time
+	cachedAt          time.Time
+}
+
 // Service handles authentication
 type Service struct {
 	jwtSecret   []byte
 	registry    *registry.Registry
 	ttl         time.Duration
 	adminSecret string
+	cacheMu     sync.RWMutex
+	userCache   map[string]userState
 }
 
 // NewService creates a new auth service
@@ -86,6 +95,7 @@ func NewService(jwtSecret string, reg *registry.Registry, ttlMinutes int, adminS
 		registry:    reg,
 		ttl:         time.Duration(ttlMinutes) * time.Minute,
 		adminSecret: sec,
+		userCache:   make(map[string]userState),
 	}
 }
 
@@ -188,9 +198,71 @@ func (s *Service) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		// Stateful user status and revocation check
+		if s.registry != nil && claims.UserID != "" {
+			if err := s.VerifyUserActive(claims); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"Unauthorized: %s"}`, err.Error()), http.StatusUnauthorized)
+				return
+			}
+		}
+
 		ctx := context.WithValue(r.Context(), UserContextKey, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// VerifyUserActive checks if the user exists and ensures the token was not issued prior to password update
+func (s *Service) VerifyUserActive(claims *Claims) error {
+	s.cacheMu.RLock()
+	cached, ok := s.userCache[claims.UserID]
+	s.cacheMu.RUnlock()
+
+	var state userState
+	if ok && time.Since(cached.cachedAt) < 1*time.Minute {
+		state = cached
+	} else {
+		user, err := s.registry.GetUserByID(claims.UserID)
+		if err != nil {
+			return fmt.Errorf("user lookup failed: %w", err)
+		}
+		if user == nil {
+			state = userState{valid: false, cachedAt: time.Now()}
+		} else {
+			state = userState{
+				valid:             true,
+				passwordChangedAt: user.PasswordChangedAt,
+				cachedAt:          time.Now(),
+			}
+		}
+		s.cacheMu.Lock()
+		if s.userCache == nil {
+			s.userCache = make(map[string]userState)
+		}
+		s.userCache[claims.UserID] = state
+		s.cacheMu.Unlock()
+	}
+
+	if !state.valid {
+		return fmt.Errorf("user account no longer exists or is deactivated")
+	}
+
+	if state.passwordChangedAt != nil && claims.IssuedAt != nil {
+		// Allow 1 second clock skew
+		if claims.IssuedAt.Time.Add(1 * time.Second).Before(*state.passwordChangedAt) {
+			return fmt.Errorf("token revoked: password was changed")
+		}
+	}
+
+	return nil
+}
+
+// InvalidateUserCache clears cached state for a user (e.g. upon password update, role change, or deletion)
+func (s *Service) InvalidateUserCache(userID string) {
+	s.cacheMu.Lock()
+	if s.userCache != nil {
+		delete(s.userCache, userID)
+	}
+	s.cacheMu.Unlock()
 }
 
 // RequireRole middleware that checks user role

@@ -29,10 +29,18 @@ func NewDocsHandler(openapiSvc *openapi.Service, postmanSvc *postman.Service, re
 
 // OpenAPI returns OpenAPI specification
 func (h *DocsHandler) OpenAPI(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil {
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Authentication required to access API documentation")
+		return
+	}
+
 	var groupIDs []string
-	if claims := auth.GetUserFromContext(r.Context()); claims != nil && claims.Role != "SUPER_ADMIN" {
+	if claims.Role != "SUPER_ADMIN" {
 		if gIDs, err := h.registry.GetUserGroupIDs(claims.UserID); err == nil {
 			groupIDs = gIDs
+		} else {
+			groupIDs = []string{}
 		}
 	}
 	
@@ -60,15 +68,23 @@ func (h *DocsHandler) OpenAPI(w http.ResponseWriter, r *http.Request) {
 
 // Postman returns Postman collection
 func (h *DocsHandler) Postman(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil {
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Authentication required to access API documentation")
+		return
+	}
+
 	baseURL := r.URL.Query().Get("base_url")
 	if baseURL == "" {
 		baseURL = "https://api.apirout.io"
 	}
 
 	var groupIDs []string
-	if claims := auth.GetUserFromContext(r.Context()); claims != nil && claims.Role != "SUPER_ADMIN" {
+	if claims.Role != "SUPER_ADMIN" {
 		if gIDs, err := h.registry.GetUserGroupIDs(claims.UserID); err == nil {
 			groupIDs = gIDs
+		} else {
+			groupIDs = []string{}
 		}
 	}
 

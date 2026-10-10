@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/apirout/apirout/internal/console/publisher"
@@ -23,6 +24,14 @@ type UpstreamsHandler struct {
 // NewUpstreamsHandler creates a new UpstreamsHandler
 func NewUpstreamsHandler(reg *registry.Registry) *UpstreamsHandler {
 	return &UpstreamsHandler{registry: reg}
+}
+
+func targetEgressPolicy() egress.Policy {
+	policy := egress.Policy{AllowPrivate: true}
+	if os.Getenv("ALLOW_LOOPBACK_SERVICES") == "true" || os.Getenv("APP_ENV") != "production" {
+		policy.AllowLoopback = true
+	}
+	return policy
 }
 
 // List returns all upstreams with target counts
@@ -218,7 +227,7 @@ func (h *UpstreamsHandler) CreateTarget(w http.ResponseWriter, r *http.Request) 
 		targetHost = req.Target
 	}
 	if targetHost != "" {
-		if err := egress.ValidateSafeHost(targetHost, egress.Policy{AllowPrivate: true}); err != nil {
+		if err := egress.ValidateSafeHost(targetHost, targetEgressPolicy()); err != nil {
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid target host: "+err.Error())
 			return
 		}
@@ -278,7 +287,7 @@ func (h *UpstreamsHandler) UpdateTarget(w http.ResponseWriter, r *http.Request) 
 		targetHost = req.Target
 	}
 	if targetHost != "" {
-		if err := egress.ValidateSafeHost(targetHost, egress.Policy{AllowPrivate: true}); err != nil {
+		if err := egress.ValidateSafeHost(targetHost, targetEgressPolicy()); err != nil {
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid target host: "+err.Error())
 			return
 		}
@@ -420,9 +429,7 @@ func PerformActiveHealthCheck(host string, port int, path string, timeoutSec int
 	if timeoutSec <= 0 {
 		timeoutSec = 5
 	}
-	client := &http.Client{
-		Timeout: time.Duration(timeoutSec) * time.Second,
-	}
+	client := egress.NewSafeHTTPClient(time.Duration(timeoutSec)*time.Second, egress.Policy{AllowPrivate: true, AllowLoopback: true})
 
 	if path == "" {
 		path = "/health"

@@ -93,4 +93,22 @@ endpoints:
 	if successBody["status"] != true {
 		t.Fatalf("expected status true, got: %v", successBody)
 	}
+
+	// 4. Oversized payload (SEC-13 Declarative Stream Shield) -> 400 Bad Request
+	oversized := make([]byte, 6*1024*1024)
+	copy(oversized, []byte(`{"version":"api.apirout.io/v1","groups":[`))
+	for i := len(`{"version":"api.apirout.io/v1","groups":[`); i < len(oversized)-1; i++ {
+		oversized[i] = ' '
+	}
+	oversized[len(oversized)-1] = ']'
+	reqOversized := httptest.NewRequest("POST", "/api/v1/gitops/import", bytes.NewReader(oversized))
+	reqOversized.Header.Set("Content-Type", "application/json")
+	reqOversized = withAdmin(reqOversized)
+	recOversized := httptest.NewRecorder()
+
+	h.Import(recOversized, reqOversized)
+	if recOversized.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for truncated oversized payload, got: %d", recOversized.Code)
+	}
 }
+

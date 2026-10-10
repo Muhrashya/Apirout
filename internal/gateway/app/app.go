@@ -41,7 +41,11 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init registry reader: %w", err)
 	}
+	return NewWithReader(cfg, logger, reader)
+}
 
+// NewWithReader creates and initializes the Data Plane Gateway application using an injected reader
+func NewWithReader(cfg *config.Config, logger *slog.Logger, reader *registry.Reader) (*App, error) {
 	httputil.SetTrustedProxies(cfg.TrustedProxies)
 
 	app := &App{
@@ -105,14 +109,21 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		})
 	}).Methods("GET")
 
-	r.Handle("/metrics", promhttp.Handler()).Methods("GET")
-
 	// Hasura-style Instant Database REST API (protected with auth)
 	instantRouter := r.PathPrefix("/api/v1/instant/{connId}").Subrouter()
 	instantRouter.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if err := instantHandler.AuthenticateRequest(r); err != nil {
-				responder.Error(w, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, err.Error())
+			vars := mux.Vars(r)
+			connID := vars["connId"]
+			status, err := instantHandler.AuthorizeConnectionAccess(r, connID)
+			if err != nil {
+				if status == http.StatusForbidden {
+					responder.Error(w, r, http.StatusForbidden, responder.ErrCodeForbidden, err.Error())
+				} else if status == http.StatusNotFound {
+					responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, err.Error())
+				} else {
+					responder.Error(w, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, err.Error())
+				}
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -153,8 +164,10 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		maxBodyBytes = 10 * 1024 * 1024
 	}
 	app.proxyHandler = responder.Middleware(
-		middleware.PayloadShield(maxBodyBytes)(
-			middleware.MetricsTracker(corsMiddleware.Handler(r)),
+		middleware.SecurityHeaders(
+			middleware.PayloadShield(maxBodyBytes)(
+				middleware.MetricsTracker(corsMiddleware.Handler(r)),
+			),
 		),
 	)
 
@@ -257,9 +270,20 @@ func (a *App) Run(ctx context.Context) error {
 	}
 }
 
+// ProxyHandler returns the HTTP handler for proxy traffic
+func (a *App) ProxyHandler() http.Handler {
+	return a.proxyHandler
+}
+
+// StatusHandler returns the HTTP handler for status and metrics
+func (a *App) StatusHandler() http.Handler {
+	return a.statusHandler
+}
+
 // Close cleans up resources
 func (a *App) Close() {
 	for i := len(a.closers) - 1; i >= 0; i-- {
 		a.closers[i]()
 	}
 }
+

@@ -2,13 +2,14 @@ package gitops
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
 
 	"github.com/apirout/apirout/internal/console/auth"
-	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/console/publisher"
 	"github.com/apirout/apirout/internal/console/registry"
+	"github.com/apirout/apirout/internal/core/httputil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -244,14 +245,18 @@ func (h *Handler) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Declarative Stream Shield: Bound body stream (5MB cap) to prevent memory exhaustion (SEC-13)
+	const maxImportBytes = 5 * 1024 * 1024
+	limitedBody := io.LimitReader(r.Body, maxImportBytes)
+
 	var snapshot MetadataSnapshot
 	if r.Header.Get("Content-Type") == "application/json" {
-		if err := json.NewDecoder(r.Body).Decode(&snapshot); err != nil {
+		if err := json.NewDecoder(limitedBody).Decode(&snapshot); err != nil {
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid JSON payload: "+err.Error())
 			return
 		}
 	} else {
-		if err := yaml.NewDecoder(r.Body).Decode(&snapshot); err != nil {
+		if err := yaml.NewDecoder(limitedBody).Decode(&snapshot); err != nil {
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid YAML payload: "+err.Error())
 			return
 		}

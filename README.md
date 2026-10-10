@@ -412,17 +412,19 @@ Apirout provides built-in runtime telemetry and audit logging:
 | `ADMIN_PORT` | `8001` | Port for Control Plane Management REST API |
 | `GUI_PORT` | `8002` | Port for Web Console Single Page Application |
 | `STATUS_PORT` | `8100` | Port for health checks and Prometheus metrics |
-| `ADMIN_SECRET` | `MasterSecretKey2026!` | Master administrative API key bypass |
-| `JWT_SECRET` | `super-secret-jwt-key...` | Cryptographic secret for signing tokens (legacy fallback) |
+| `ADMIN_SECRET` | `MasterSecretKey2026!` | Master administrative API key bypass (min 24 chars in production) |
+| `JWT_SECRET` | `super-secret-jwt-key...` | Cryptographic secret for signing tokens (legacy fallback, min 32 chars) |
 | `CONSOLE_JWT_SECRET` | *(falls back to JWT_SECRET)* | Dedicated signing secret for Control Plane admin users |
 | `GATEWAY_JWT_SECRET` | *(falls back to JWT_SECRET)* | Dedicated signing secret for Data Plane consumer tokens |
+| `APP_ENCRYPTION_KEY` | `apirout-local-dev-aes...` | AES-256 key for upstream credential encryption (min 32 chars) |
 | `TRUSTED_PROXIES` | `""` | Comma-separated trusted proxy CIDRs (e.g. `10.0.0.0/8,172.16.0.0/12`) |
 | `DB_TYPE` | `postgres` | Registry database engine: `postgres`, `sqlite` |
 | `DB_HOST` | `postgres` | Registry database hostname |
 | `DB_PORT` | `5432` | Registry database port |
+| `DB_PASSWORD` | `Password123!` | Registry database password |
 | `REDIS_HOST` | `redis` | Redis server for distributed cache invalidation |
 | `REDIS_PORT` | `6379` | Redis server port |
-| `REDIS_PASSWORD` | `RedisSecret2026!` | Mandatory Redis authentication password |
+| `REDIS_PASSWORD` | `RedisSecurePass2026!` | Mandatory Redis authentication password |
 
 ---
 

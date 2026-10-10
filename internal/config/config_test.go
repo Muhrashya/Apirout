@@ -117,3 +117,28 @@ func TestConfig_Production_ValidSecrets(t *testing.T) {
 		t.Errorf("expected AdminSecret to match, got: %s", cfg.AdminSecret)
 	}
 }
+
+func TestConfig_Production_ComposeFallbackSecretsRejection(t *testing.T) {
+	resetEnv()
+	os.Setenv("APP_ENV", "production")
+	os.Setenv("ADMIN_SECRET", "very-strong-production-admin-secret-24-chars!")
+	os.Setenv("DB_PASSWORD", "genuine-unique-production-db-password-2026!")
+	defer resetEnv()
+
+	// 1. Rejects super-secret-jwt-key-min-32-characters!
+	os.Setenv("JWT_SECRET", "super-secret-jwt-key-min-32-characters!")
+	os.Setenv("APP_ENCRYPTION_KEY", "very-strong-production-aes-key-32-chars-long!")
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "must not use default placeholder") {
+		t.Fatalf("expected error rejecting compose fallback JWT_SECRET, got: %v", err)
+	}
+
+	// 2. Rejects apirout-local-dev-aes-encryption-key-32!
+	os.Setenv("JWT_SECRET", "very-strong-production-jwt-secret-key-32-chars!")
+	os.Setenv("APP_ENCRYPTION_KEY", "apirout-local-dev-aes-encryption-key-32!")
+	_, err = Load()
+	if err == nil || !strings.Contains(err.Error(), "APP_ENCRYPTION_KEY must be at least 32 characters and must not use default placeholder") {
+		t.Fatalf("expected error rejecting compose fallback APP_ENCRYPTION_KEY, got: %v", err)
+	}
+}
+

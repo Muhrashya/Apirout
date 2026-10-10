@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 
 	"github.com/apirout/apirout/internal/console/registry"
 	"github.com/apirout/apirout/internal/core/egress"
@@ -19,6 +20,14 @@ type ServicesHandler struct {
 // NewServicesHandler creates a new ServicesHandler
 func NewServicesHandler(reg *registry.Registry) *ServicesHandler {
 	return &ServicesHandler{registry: reg}
+}
+
+func serviceEgressPolicy() egress.Policy {
+	policy := egress.Policy{AllowPrivate: true}
+	if os.Getenv("ALLOW_LOOPBACK_SERVICES") == "true" || os.Getenv("APP_ENV") != "production" {
+		policy.AllowLoopback = true
+	}
+	return policy
 }
 
 // List returns all services
@@ -77,7 +86,7 @@ func (h *ServicesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Host != "" {
-		if err := egress.ValidateSafeHost(req.Host, egress.Policy{AllowPrivate: true}); err != nil {
+		if err := egress.ValidateSafeHost(req.Host, serviceEgressPolicy()); err != nil {
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid service host: "+err.Error())
 			return
 		}
@@ -135,7 +144,7 @@ func (h *ServicesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Host != "" {
-		if err := egress.ValidateSafeHost(req.Host, egress.Policy{AllowPrivate: true}); err != nil {
+		if err := egress.ValidateSafeHost(req.Host, serviceEgressPolicy()); err != nil {
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid service host: "+err.Error())
 			return
 		}

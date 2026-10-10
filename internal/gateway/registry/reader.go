@@ -48,6 +48,11 @@ func NewReader(dbType, host, port, dbname, user, password, sslmode string) (*Rea
 	return &Reader{db: db.Unsafe(), dbType: dbType}, nil
 }
 
+// NewReaderWithDB creates a Reader instance with an existing sqlx.DB connection (useful for in-memory tests)
+func NewReaderWithDB(db *sqlx.DB, dbType string) *Reader {
+	return &Reader{db: db.Unsafe(), dbType: dbType}
+}
+
 // Close closes the database connection
 func (r *Reader) Close() error {
 	return r.db.Close()
@@ -102,7 +107,7 @@ func (r *Reader) GetQueryByID(id string) (*models.Query, error) {
 // GetConnectionByID retrieves connection profile by ID
 func (r *Reader) GetConnectionByID(id string) (*models.Connection, error) {
 	var conn models.Connection
-	err := r.db.Get(&conn, "SELECT * FROM connections WHERE id = $1", id)
+	err := r.db.Get(&conn, r.db.Rebind("SELECT * FROM connections WHERE id = ?"), id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

@@ -258,8 +258,10 @@ func (r *Registry) getSQLiteMigrations() []string {
 			email TEXT UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
 			role TEXT NOT NULL DEFAULT 'MEMBER',
+			password_changed_at DATETIME,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`ALTER TABLE users ADD COLUMN password_changed_at DATETIME`,
 
 		// Groups table
 		`CREATE TABLE IF NOT EXISTS groups (
@@ -440,8 +442,10 @@ func (r *Registry) getPostgresMigrations() []string {
 			email VARCHAR(255) UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
 			role VARCHAR(50) NOT NULL DEFAULT 'MEMBER',
+			password_changed_at TIMESTAMP,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP`,
 
 		// Groups table
 		`CREATE TABLE IF NOT EXISTS groups (
@@ -616,8 +620,10 @@ func (r *Registry) getMySQLMigrations() []string {
 			email VARCHAR(255) UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
 			role VARCHAR(50) NOT NULL DEFAULT 'MEMBER',
+			password_changed_at DATETIME,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`ALTER TABLE users ADD COLUMN password_changed_at DATETIME`,
 
 		// Groups table
 		`CREATE TABLE IF NOT EXISTS ` + "`groups`" + ` (
@@ -837,11 +843,12 @@ func (r *Registry) CreateSuperAdmin(email, password string) (*User, error) {
 
 // User represents a user in the system
 type User struct {
-	ID           string    `db:"id" json:"id"`
-	Email        string    `db:"email" json:"email"`
-	PasswordHash string    `db:"password_hash" json:"-"`
-	Role         string    `db:"role" json:"role"`
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	ID                string     `db:"id" json:"id"`
+	Email             string     `db:"email" json:"email"`
+	PasswordHash      string     `db:"password_hash" json:"-"`
+	Role              string     `db:"role" json:"role"`
+	PasswordChangedAt *time.Time `db:"password_changed_at" json:"password_changed_at,omitempty"`
+	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
 }
 
 // GetUserByEmail finds a user by email
@@ -878,17 +885,19 @@ func (r *Registry) CreateUser(email, password, role string) (*User, error) {
 		return nil, err
 	}
 
+	now := time.Now()
 	user := &User{
-		ID:           generateID(),
-		Email:        email,
-		PasswordHash: string(hash),
-		Role:         role,
-		CreatedAt:    time.Now(),
+		ID:                generateID(),
+		Email:             email,
+		PasswordHash:      string(hash),
+		Role:              role,
+		PasswordChangedAt: &now,
+		CreatedAt:         now,
 	}
 
 	_, err = r.db.Exec(
-		r.db.Rebind("INSERT INTO users (id, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)"),
-		user.ID, user.Email, user.PasswordHash, user.Role, user.CreatedAt,
+		r.db.Rebind("INSERT INTO users (id, email, password_hash, role, password_changed_at, created_at) VALUES (?, ?, ?, ?, ?, ?)"),
+		user.ID, user.Email, user.PasswordHash, user.Role, user.PasswordChangedAt, user.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -904,7 +913,8 @@ func (r *Registry) UpdateUser(id, email, role, password string) error {
 		if err != nil {
 			return err
 		}
-		_, err = r.db.Exec(r.db.Rebind("UPDATE users SET email = ?, role = ?, password_hash = ? WHERE id = ?"), email, role, string(hash), id)
+		now := time.Now()
+		_, err = r.db.Exec(r.db.Rebind("UPDATE users SET email = ?, role = ?, password_hash = ?, password_changed_at = ? WHERE id = ?"), email, role, string(hash), now, id)
 		return err
 	}
 	_, err := r.db.Exec(r.db.Rebind("UPDATE users SET email = ?, role = ? WHERE id = ?"), email, role, id)
@@ -918,7 +928,8 @@ func (r *Registry) UpdateUserPassword(userID, newPassword string) error {
 		return err
 	}
 
-	_, err = r.db.Exec(r.db.Rebind("UPDATE users SET password_hash = ? WHERE id = ?"), string(hash), userID)
+	now := time.Now()
+	_, err = r.db.Exec(r.db.Rebind("UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?"), string(hash), now, userID)
 	return err
 }
 

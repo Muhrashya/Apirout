@@ -30,10 +30,11 @@ func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	path := filepath.Join(h.staticPath, relativePath)
 
-	// Defense-in-depth: Ensure resolved path does not escape staticPath directory
+	// Defense-in-depth: Ensure resolved path does not escape staticPath directory (SEC-14)
 	if cleanStatic, err := filepath.Abs(h.staticPath); err == nil {
 		if cleanTarget, err := filepath.Abs(path); err == nil {
-			if !strings.HasPrefix(cleanTarget, cleanStatic) {
+			rel, relErr := filepath.Rel(cleanStatic, cleanTarget)
+			if relErr != nil || strings.HasPrefix(rel, "..") || rel == ".." {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}

@@ -131,3 +131,9 @@ An authenticated at-rest symmetric encryption scheme utilizing AES-256-GCM with 
 ### Cross-Plane Token Guard
 A runtime authorization enforcement in the gateway Data Plane authentication engine that parses JWT claims and explicitly rejects tokens bearing administrative claims (`typ: "admin"` or administrative user identifiers), preventing privilege elevation across boundaries.
 
+### Global Connection Isolation
+The access control invariant stating that database connections without an explicit Consumer Group assignment (`group_id IS NULL`) are classified as system assets. They are strictly inaccessible to tenant consumer API keys or client tokens, and can only be queried through the Control Plane or Instant CRUD via Super Admin credentials or the Master Admin Secret.
+
+### Declarative Stream Shield
+A defense-in-depth resource bounding control applied to GitOps declarative configuration imports that limits incoming request body streams and constrains YAML alias expansion to prevent algorithmic complexity attacks and memory exhaustion.
+

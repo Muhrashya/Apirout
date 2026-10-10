@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/apirout/apirout/internal/console/auth"
 	"github.com/apirout/apirout/internal/console/registry"
 )
@@ -70,3 +72,76 @@ func TestUserHandler_List_RBAC(t *testing.T) {
 		t.Errorf("expected 200 OK for SUPER_ADMIN listing users, got %d", recSuper.Code)
 	}
 }
+
+func TestUserHandler_LockoutGuardrails(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test_users_lockout.db")
+
+	reg, err := registry.NewWithSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test registry: %v", err)
+	}
+	defer reg.Close()
+
+	if err := reg.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+
+	authSvc := auth.NewService("test-secret-key-32-chars-long!", reg, 60)
+	handler := NewUserHandler(reg, authSvc)
+
+	// Create root super admin
+	admin, err := reg.CreateUser("admin@apirout.io", "Pass12345!", auth.RoleSuperAdmin)
+	if err != nil {
+		t.Fatalf("Failed to create super admin: %v", err)
+	}
+
+	// 1. Test Self-Deletion Guardrail
+	reqSelfDelete := httptest.NewRequest("DELETE", "/api/v1/users/"+admin.ID, nil)
+	reqSelfDelete = mux.SetURLVars(reqSelfDelete, map[string]string{"id": admin.ID})
+	adminClaims := &auth.Claims{
+		UserID: admin.ID,
+		Email:  admin.Email,
+		Role:   admin.Role,
+	}
+	ctxAdmin := context.WithValue(reqSelfDelete.Context(), auth.UserContextKey, adminClaims)
+	reqSelfDelete = reqSelfDelete.WithContext(ctxAdmin)
+
+	recSelfDelete := httptest.NewRecorder()
+	handler.Delete(recSelfDelete, reqSelfDelete)
+
+	if recSelfDelete.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for self-deletion, got %d", recSelfDelete.Code)
+	}
+
+	// 2. Test Deleting Last Super Admin (by different caller, e.g. system/another admin)
+	reqLastDelete := httptest.NewRequest("DELETE", "/api/v1/users/"+admin.ID, nil)
+	reqLastDelete = mux.SetURLVars(reqLastDelete, map[string]string{"id": admin.ID})
+	otherCallerClaims := &auth.Claims{
+		UserID: "different-admin-id",
+		Email:  "other@apirout.io",
+		Role:   auth.RoleSuperAdmin,
+	}
+	ctxOther := context.WithValue(reqLastDelete.Context(), auth.UserContextKey, otherCallerClaims)
+	reqLastDelete = reqLastDelete.WithContext(ctxOther)
+
+	recLastDelete := httptest.NewRecorder()
+	handler.Delete(recLastDelete, reqLastDelete)
+
+	if recLastDelete.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for deleting last super admin, got %d", recLastDelete.Code)
+	}
+
+	// 3. Test Demoting Last Super Admin
+	reqDemote := httptest.NewRequest("PUT", "/api/v1/users/"+admin.ID, strings.NewReader(`{"email":"admin@apirout.io","role":"DEVELOPER"}`))
+	reqDemote = mux.SetURLVars(reqDemote, map[string]string{"id": admin.ID})
+	reqDemote = reqDemote.WithContext(ctxOther)
+
+	recDemote := httptest.NewRecorder()
+	handler.Update(recDemote, reqDemote)
+
+	if recDemote.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for demoting last super admin, got %d", recDemote.Code)
+	}
+}
+

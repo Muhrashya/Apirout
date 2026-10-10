@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "804dbca1-c216-4b15-9d9e-c188634fafe0",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "C:\\Users\\mazep\\OneDrive\\Documents\\api-builder-main\\.archify\\architecture-apirout-runtime-20261009-225129\\candidate.json",
+  "output": "C:\\Users\\mazep\\OneDrive\\Documents\\api-builder-main\\.archify\\architecture-apirout-runtime-20261009-225129\\apirout-runtime.html",
+  "specification": {
+    "sha256": "2ce09fb4012ebaf260e8e3df3492f2f001d15cde0773cf33401e77bae307c800",
+    "bytes": 10154
+  },
+  "artifact": {
+    "sha256": "05b11d3c93408282ed186a55d077a0e1515086f69a851f03f34e9b46a36e2b7e",
+    "bytes": 779112
+  }
+}

@@ -251,6 +251,8 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.service.InvalidateUserCache(user.ID)
+
 	clientIP := httputil.GetClientIP(r)
 	h.registry.CreateAuditLog(&registry.AuditLog{
 		EventType: "user_password_changed",

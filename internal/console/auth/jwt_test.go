@@ -52,3 +52,61 @@ func TestValidateToken_HS256(t *testing.T) {
 		t.Error("Claims mismatch")
 	}
 }
+
+func TestService_VerifyUserActive_Revocation(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := tempDir + "/test_jwt_revocation.db"
+
+	reg, err := registry.NewWithSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test registry: %v", err)
+	}
+	defer reg.Close()
+
+	if err := reg.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate: %v", err)
+	}
+
+	user, err := reg.CreateUser("user@example.com", "Password123!", "ADMIN")
+	if err != nil {
+		t.Fatalf("Failed to create user: %v", err)
+	}
+
+	svc := NewService("test-secret-min-32-chars-long!!!!!", reg, 60)
+
+	// Generate token
+	tokenStr, _, err := svc.GenerateToken(user)
+	if err != nil {
+		t.Fatalf("Failed to generate token: %v", err)
+	}
+
+	claims, err := svc.ValidateToken(tokenStr)
+	if err != nil {
+		t.Fatalf("Failed to validate token: %v", err)
+	}
+
+	// 1. Valid user should pass verification
+	if err := svc.VerifyUserActive(claims); err != nil {
+		t.Errorf("Expected active user to pass, got: %v", err)
+	}
+
+	// 2. Change password -> old token should be revoked
+	time.Sleep(1100 * time.Millisecond)
+	if err := reg.UpdateUserPassword(user.ID, "NewPassword123!"); err != nil {
+		t.Fatalf("Failed to update user password: %v", err)
+	}
+	svc.InvalidateUserCache(user.ID)
+
+	if err := svc.VerifyUserActive(claims); err == nil {
+		t.Error("Expected token to be revoked after password change, but passed")
+	}
+
+	// 3. Delete user -> token should be revoked
+	_ = reg.DeleteUser(user.ID)
+	svc.InvalidateUserCache(user.ID)
+
+	if err := svc.VerifyUserActive(claims); err == nil {
+		t.Error("Expected token to be revoked after user deletion, but passed")
+	}
+}
+

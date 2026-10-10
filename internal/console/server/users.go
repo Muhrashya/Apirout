@@ -15,11 +15,16 @@ import (
 // UserHandler handles user management
 type UserHandler struct {
 	registry *registry.Registry
+	authSvc  *auth.Service
 }
 
 // NewUserHandler creates a new user handler
-func NewUserHandler(reg *registry.Registry) *UserHandler {
-	return &UserHandler{registry: reg}
+func NewUserHandler(reg *registry.Registry, authSvc ...*auth.Service) *UserHandler {
+	var svc *auth.Service
+	if len(authSvc) > 0 {
+		svc = authSvc[0]
+	}
+	return &UserHandler{registry: reg, authSvc: svc}
 }
 
 // List returns all users
@@ -106,6 +111,35 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	targetUser, err := h.registry.GetUserByID(id)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to fetch user: "+err.Error())
+		return
+	}
+	if targetUser == nil {
+		httputil.WriteJSONError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	// Guardrail: Block demoting the last active Super Admin
+	if targetUser.Role == auth.RoleSuperAdmin && req.Role != "" && req.Role != auth.RoleSuperAdmin {
+		users, err := h.registry.ListUsers()
+		if err != nil {
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to list users: "+err.Error())
+			return
+		}
+		superAdminCount := 0
+		for _, u := range users {
+			if u.Role == auth.RoleSuperAdmin {
+				superAdminCount++
+			}
+		}
+		if superAdminCount <= 1 {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Operation blocked: cannot demote the last active Super Admin account")
+			return
+		}
+	}
+
 	password := ""
 	if req.Password != nil {
 		password = *req.Password
@@ -116,6 +150,10 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.authSvc != nil {
+		h.authSvc.InvalidateUserCache(id)
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "User updated successfully"})
 }
 
@@ -123,9 +161,49 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
+	// Guardrail 1: Block self-deletion
+	claims := auth.GetUserFromContext(r.Context())
+	if claims != nil && claims.UserID == id {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Self-deletion is prohibited: you cannot delete your own user account")
+		return
+	}
+
+	// Guardrail 2: Block deleting the last remaining Super Admin
+	targetUser, err := h.registry.GetUserByID(id)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to fetch user: "+err.Error())
+		return
+	}
+	if targetUser == nil {
+		httputil.WriteJSONError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	if targetUser.Role == auth.RoleSuperAdmin {
+		users, err := h.registry.ListUsers()
+		if err != nil {
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to list users: "+err.Error())
+			return
+		}
+		superAdminCount := 0
+		for _, u := range users {
+			if u.Role == auth.RoleSuperAdmin {
+				superAdminCount++
+			}
+		}
+		if superAdminCount <= 1 {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Operation blocked: cannot delete the last active Super Admin account")
+			return
+		}
+	}
+
 	if err := h.registry.DeleteUser(id); err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to delete user: "+err.Error())
 		return
+	}
+
+	if h.authSvc != nil {
+		h.authSvc.InvalidateUserCache(id)
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "User deleted successfully"})

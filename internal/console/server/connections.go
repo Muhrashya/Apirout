@@ -420,13 +420,11 @@ func (h *ConnectionHandler) TestRaw(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// SSRF Protection: Prevent probing internal loopback, link-local metadata, or private IP ranges
-	if req.DBType != "sqlite" {
-		if err := egress.ValidateSafeHost(req.Host); err != nil {
-			errMsg := fmt.Sprintf("Security violation: %v", err)
-			httputil.WriteJSON(w, http.StatusBadRequest, TestConnectionResponse{Success: false, Error: &errMsg})
-			return
-		}
+	// SSRF Protection: Prevent probing internal loopback, link-local metadata, or private IP ranges (SEC-15)
+	if err := egress.ValidateSafeHost(req.Host); err != nil {
+		errMsg := fmt.Sprintf("Security violation: %v", err)
+		httputil.WriteJSON(w, http.StatusBadRequest, TestConnectionResponse{Success: false, Error: &errMsg})
+		return
 	}
 
 	connString, err := targets.BuildConnectionString(req.DBType, req.Host, req.Port, req.DBName, req.Username, req.Password, req.SSLMode)

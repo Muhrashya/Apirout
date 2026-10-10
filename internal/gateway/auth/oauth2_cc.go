@@ -30,7 +30,7 @@ type OAuth2CCManager struct {
 
 // NewOAuth2CCManager creates a new OAuth2 client credentials manager
 func NewOAuth2CCManager(client ...*http.Client) *OAuth2CCManager {
-	httpClient := &http.Client{Timeout: 10 * time.Second}
+	httpClient := egress.NewSafeHTTPClient(10 * time.Second)
 	if len(client) > 0 && client[0] != nil {
 		httpClient = client[0]
 	}
@@ -104,7 +104,12 @@ func (m *OAuth2CCManager) GetToken(tokenURL, clientID, clientSecret, scopes stri
 		httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		httpReq.SetBasicAuth(clientID, clientSecret)
 
-		resp, err := m.client.Do(httpReq)
+		httpClient := m.client
+		if m.AllowInsecureEgress {
+			httpClient = egress.NewSafeHTTPClient(10*time.Second, egress.Policy{AllowLoopback: true, AllowPrivate: true})
+		}
+
+		resp, err := httpClient.Do(httpReq)
 		if err != nil {
 			return nil, fmt.Errorf("oauth2 token request failed: %w", err)
 		}

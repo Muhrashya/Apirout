@@ -1,0 +1,351 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Apirout Runtime Architecture",
+    "output": ".archify/architecture-apirout-runtime-20261009-225129/apirout-runtime.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/Muhrashya/Apirout.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "907654d70ec8814c2c282a5655ceea44373ead2a"
+    }
+  },
+  "components": [
+    {
+      "id": "client",
+      "type": "external",
+      "label": "API Consumers",
+      "sublabel": "HTTP / REST Clients",
+      "pos": [40, 240],
+      "size": [120, 60]
+    },
+    {
+      "id": "ingress_shield",
+      "type": "security",
+      "label": "Ingress Shield",
+      "sublabel": "Proxy :8000 · 10MB Guard",
+      "tag": "CIDR / MaxBytes",
+      "pos": [280, 240],
+      "size": [130, 60],
+      "sources": [
+        {
+          "path": "internal/gateway/middleware/payload_shield.go",
+          "line": 14,
+          "end_line": 56,
+          "label": "PayloadShield 10MB Guard"
+        },
+        {
+          "path": "internal/core/iputil/ip_checker.go",
+          "line": 45,
+          "end_line": 58,
+          "label": "Trusted Proxy Resolver"
+        }
+      ]
+    },
+    {
+      "id": "radix_router",
+      "type": "backend",
+      "label": "Radix Router",
+      "sublabel": "In-Memory Prefix Trie",
+      "tag": "<1ms matching",
+      "pos": [530, 240],
+      "size": [130, 60],
+      "sources": [
+        {
+          "path": "internal/core/router/radix.go",
+          "line": 44,
+          "end_line": 60,
+          "label": "Radix Trie Router"
+        }
+      ]
+    },
+    {
+      "id": "auth_engine",
+      "type": "security",
+      "label": "Auth & Rate Limit",
+      "sublabel": "JWT / Key / HMAC / Bucket",
+      "tag": "Multi-Plugin OR",
+      "pos": [780, 240],
+      "size": [130, 60],
+      "sources": [
+        {
+          "path": "internal/gateway/executor/stage_auth.go",
+          "line": 22,
+          "end_line": 56,
+          "label": "Multi-Plugin Auth Pipeline"
+        }
+      ]
+    },
+    {
+      "id": "upstream_proxy",
+      "type": "backend",
+      "label": "Upstream Proxy",
+      "sublabel": "Reverse Proxy & Breaker",
+      "tag": "Credential Inject",
+      "pos": [1030, 240],
+      "size": [130, 60],
+      "sources": [
+        {
+          "path": "internal/gateway/executor/stage_upstream.go",
+          "line": 23,
+          "end_line": 60,
+          "label": "Reverse Proxy & Breaker"
+        }
+      ]
+    },
+    {
+      "id": "target_upstream",
+      "type": "external",
+      "label": "Upstream Services",
+      "sublabel": "HTTP Backend Targets",
+      "tag": "Private VPC",
+      "pos": [1280, 240],
+      "size": [130, 60]
+    },
+    {
+      "id": "instant_crud",
+      "type": "backend",
+      "label": "Instant CRUD Engine",
+      "sublabel": "SQL Dialect Generator",
+      "tag": "PG / MySQL / SQLite",
+      "pos": [780, 400],
+      "size": [130, 60],
+      "sources": [
+        {
+          "path": "internal/gateway/executor/instant_crud.go",
+          "line": 30,
+          "end_line": 50,
+          "label": "Instant CRUD Handler"
+        }
+      ]
+    },
+    {
+      "id": "target_database",
+      "type": "database",
+      "label": "Database Cluster",
+      "sublabel": "PostgreSQL & MySQL",
+      "tag": "Bastion SSH",
+      "pos": [1280, 400],
+      "size": [130, 60],
+      "sources": [
+        {
+          "path": "internal/core/tunnel/tunnel.go",
+          "line": 32,
+          "end_line": 47,
+          "label": "SSH Bastion Tunnel"
+        }
+      ]
+    },
+    {
+      "id": "telemetry",
+      "type": "cloud",
+      "label": "Status & Telemetry",
+      "sublabel": "Prometheus :8100 & Logs",
+      "tag": "X-Request-ID",
+      "pos": [530, 400],
+      "size": [130, 60],
+      "sources": [
+        {
+          "path": "internal/gateway/executor/stage_telemetry.go",
+          "line": 25,
+          "end_line": 60,
+          "label": "Telemetry & Trace Logger"
+        }
+      ]
+    },
+    {
+      "id": "admin_api",
+      "type": "backend",
+      "label": "Admin Management API",
+      "sublabel": "Control Plane :8001",
+      "tag": "RBAC & Redaction",
+      "pos": [530, 80],
+      "size": [130, 60],
+      "sources": [
+        {
+          "path": "internal/console/app/app.go",
+          "line": 161,
+          "end_line": 185,
+          "label": "Admin API Port 8001"
+        }
+      ]
+    },
+    {
+      "id": "event_bus",
+      "type": "messagebus",
+      "label": "EventBus Engine",
+      "sublabel": "Topic: apirout:events",
+      "tag": "Pub/Sub Sync",
+      "pos": [780, 80],
+      "size": [130, 60],
+      "sources": [
+        {
+          "path": "internal/core/eventbus/redis.go",
+          "line": 16,
+          "end_line": 53,
+          "label": "Redis EventBus Pub/Sub"
+        }
+      ]
+    },
+    {
+      "id": "redis_node",
+      "type": "database",
+      "label": "Redis State Store",
+      "sublabel": "Cluster :6379",
+      "tag": "Shared Cache",
+      "pos": [1280, 80],
+      "size": [130, 60]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Apirout Control Plane (:8001)",
+      "wraps": ["admin_api", "event_bus"],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "Apirout Data Plane (:8000 / :8100)",
+      "wraps": ["ingress_shield", "radix_router", "auth_engine", "upstream_proxy", "instant_crud", "telemetry"],
+      "pad": 18
+    },
+    {
+      "kind": "security-group",
+      "label": "Pipeline Execution Stage",
+      "wraps": ["radix_router", "auth_engine", "upstream_proxy", "instant_crud"],
+      "pad": 10
+    },
+    {
+      "kind": "region",
+      "label": "Protected Upstream & Datastore Network",
+      "wraps": ["redis_node", "target_upstream", "target_database"],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {
+      "id": "client-to-shield",
+      "from": "client",
+      "to": "ingress_shield",
+      "label": "HTTPS :8000",
+      "variant": "emphasis"
+    },
+    {
+      "id": "shield-to-router",
+      "from": "ingress_shield",
+      "to": "radix_router",
+      "label": "shielded body",
+      "variant": "emphasis"
+    },
+    {
+      "id": "router-to-auth",
+      "from": "radix_router",
+      "to": "auth_engine",
+      "label": "matched route",
+      "variant": "emphasis"
+    },
+    {
+      "id": "auth-to-upstream",
+      "from": "auth_engine",
+      "to": "upstream_proxy",
+      "label": "auth context",
+      "variant": "emphasis"
+    },
+    {
+      "id": "upstream-to-backend",
+      "from": "upstream_proxy",
+      "to": "target_upstream",
+      "label": "proxy forward",
+      "variant": "emphasis"
+    },
+    {
+      "id": "auth-to-crud",
+      "from": "auth_engine",
+      "to": "instant_crud",
+      "label": "CRUD requests"
+    },
+    {
+      "id": "crud-to-database",
+      "from": "instant_crud",
+      "to": "target_database",
+      "label": "dynamic SQL"
+    },
+    {
+      "id": "admin-to-bus",
+      "from": "admin_api",
+      "to": "event_bus",
+      "label": "publish event"
+    },
+    {
+      "id": "bus-to-redis",
+      "from": "event_bus",
+      "to": "redis_node",
+      "label": "pub/sub channel"
+    },
+    {
+      "id": "admin-to-router",
+      "from": "admin_api",
+      "to": "radix_router",
+      "label": "reload routes",
+      "variant": "dashed"
+    },
+    {
+      "id": "router-to-telemetry",
+      "from": "radix_router",
+      "to": "telemetry",
+      "label": "metrics & logs",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Ingress & Edge Shielding",
+      "items": [
+        "Port 8000 ingress bounded by PayloadShield middleware enforcing 10MB limit with canonical HTTP 413 error envelopes",
+        "TrustedProxyChecker validates client IP against configured CIDR masks, stripping forged proxy headers from untrusted origins",
+        "Radix Trie router resolves incoming route paths in <1ms with zero memory allocations per request"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Pipeline & Inbound Authentication",
+      "items": [
+        "Multi-plugin authentication engine evaluates key-auth, jwt-auth, basic-auth, oauth2, and hmac-auth with configurable logical OR fallback",
+        "Consumer-level and route-level token bucket rate limiters reject abusive traffic before upstream dispatch",
+        "Contextual consumer identity and group attributes injected into pipeline for downstream policy enforcement"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Upstream Routing & Instant CRUD",
+      "items": [
+        "Passive circuit breakers track consecutive 5xx failures and automatically trip targets to prevent cascading downtime",
+        "Outbound credential injector attaches Bearer tokens, Basic auth, API keys, AWS SigV4, or OAuth2 Client Credentials to upstream requests",
+        "Instant CRUD engine dynamically transforms REST calls into PostgreSQL, MySQL, and SQLite queries with introspection schema mapping",
+        "SSH Bastion Tunnel adapter establishes encrypted jump-host tunnels for private backend databases"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Control Plane & Zero-Downtime Synchronization",
+      "items": [
+        "Dedicated port separation isolates Data Plane (:8000), Admin API (:8001), Web Console (:8002), and Health/Metrics (:8100)",
+        "Admin server exposes RBAC endpoints with automatic redaction of sensitive credentials and database connection secrets",
+        "Distributed Redis Pub/Sub topic apirout:events broadcasts schema and routing updates across cluster nodes for atomic pointer swapping"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Observability & Telemetry",
+      "items": [
+        "Telemetry stage exports Prometheus runtime metrics on :8100 (/metrics) and reports Kubernetes liveness/readiness probes (/health)",
+        "Correlation IDs (X-Request-ID) propagated end-to-end through pipeline context to access loggers and upstream headers",
+        "High-performance structured JSON access logging records upstream latency, gateway latency, status codes, and bytes transferred"
+      ]
+    }
+  ]
+}

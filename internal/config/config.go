@@ -176,13 +176,13 @@ func Load() (*Config, error) {
 	}
 
 	if cfg.AppEnv == "production" {
-		if len(cfg.ConsoleJWTSecret) < 32 || cfg.ConsoleJWTSecret == "default-jwt-secret-key-min-32-characters!" || cfg.ConsoleJWTSecret == "apirout-default-jwt-secret-key-32chars!" {
+		if len(cfg.ConsoleJWTSecret) < 32 || cfg.ConsoleJWTSecret == "default-jwt-secret-key-min-32-characters!" || cfg.ConsoleJWTSecret == "apirout-default-jwt-secret-key-32chars!" || cfg.ConsoleJWTSecret == "super-secret-jwt-key-min-32-characters!" {
 			return nil, fmt.Errorf("CONSOLE_JWT_SECRET (or JWT_SECRET) must be at least 32 characters and must not use default placeholder in production")
 		}
-		if len(cfg.GatewayJWTSecret) < 32 || cfg.GatewayJWTSecret == "default-jwt-secret-key-min-32-characters!" || cfg.GatewayJWTSecret == "apirout-default-jwt-secret-key-32chars!" {
+		if len(cfg.GatewayJWTSecret) < 32 || cfg.GatewayJWTSecret == "default-jwt-secret-key-min-32-characters!" || cfg.GatewayJWTSecret == "apirout-default-jwt-secret-key-32chars!" || cfg.GatewayJWTSecret == "super-secret-jwt-key-min-32-characters!" {
 			return nil, fmt.Errorf("GATEWAY_JWT_SECRET (or JWT_SECRET) must be at least 32 characters and must not use default placeholder in production")
 		}
-		if len(cfg.EncryptionKey) < 32 || cfg.EncryptionKey == "aes-encryption-key-32-chars-ok!" || cfg.EncryptionKey == "aes-encryption-key-32-characters!" {
+		if len(cfg.EncryptionKey) < 32 || cfg.EncryptionKey == "aes-encryption-key-32-chars-ok!" || cfg.EncryptionKey == "aes-encryption-key-32-characters!" || cfg.EncryptionKey == "apirout-local-dev-aes-encryption-key-32!" {
 			return nil, fmt.Errorf("APP_ENCRYPTION_KEY must be at least 32 characters and must not use default placeholder in production")
 		}
 		if cfg.AdminSecret == "" {

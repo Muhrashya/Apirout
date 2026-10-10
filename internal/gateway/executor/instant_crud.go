@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -49,36 +50,98 @@ func NewInstantCRUDHandler(reader *registry.Reader, encryptionKey string, connPo
 	}
 }
 
-// AuthenticateRequest verifies that the request carries a valid API key, Bearer JWT, or Admin Secret
-func (h *InstantCRUDHandler) AuthenticateRequest(r *http.Request) error {
-	// 1. Check Admin Secret (Constant-time comparison)
+// AuthorizeConnectionAccess verifies authentication and enforces object-level authorization (BOLA defense)
+// ensuring the caller has permissions to access the target connection ID.
+func (h *InstantCRUDHandler) AuthorizeConnectionAccess(r *http.Request, connID string) (int, error) {
+	// 1. Check Admin Secret (Constant-time comparison) - Grants full super admin bypass
 	if h.adminSecret != "" {
 		secretHeader := r.Header.Get("X-Apirout-Admin-Secret")
 		if secretHeader == "" {
 			secretHeader = r.Header.Get("X-Admin-Secret")
 		}
 		if secretHeader != "" && subtle.ConstantTimeCompare([]byte(secretHeader), []byte(h.adminSecret)) == 1 {
-			return nil
+			return http.StatusOK, nil
 		}
 	}
 
-	// 2. Check API Key
+	// 2. Fetch target connection if connID provided and reader configured
+	var targetGroupID *string
+	var connFound bool
+	if h.reader != nil && connID != "" {
+		conn, err := h.reader.GetConnectionByID(connID)
+		if err != nil {
+			return http.StatusInternalServerError, fmt.Errorf("lookup connection %s failed: %w", connID, err)
+		}
+		if conn == nil {
+			return http.StatusNotFound, fmt.Errorf("connection %s not found", connID)
+		}
+		targetGroupID = conn.GroupID
+		connFound = true
+	}
+
+	// 3. Check API Key
 	token, apiKey := auth.ExtractTokenOrKey(r)
 	if apiKey != "" {
-		consumer, _, err := h.reader.ValidateAPIKey(apiKey)
-		if err == nil && consumer != nil {
-			return nil
+		if h.reader == nil {
+			return http.StatusUnauthorized, fmt.Errorf("registry reader unavailable for authentication")
 		}
+		consumer, _, err := h.reader.ValidateAPIKey(apiKey)
+		if err != nil || consumer == nil {
+			return http.StatusUnauthorized, fmt.Errorf("invalid or revoked API key")
+		}
+
+		// Object-level authorization check:
+		if connFound && (targetGroupID == nil || *targetGroupID == "") {
+			slog.Warn("instant crud global connection access attempt blocked",
+				"reason", "consumer cannot access ungrouped/global connection",
+				"consumer_id", consumer.ID,
+				"conn_id", connID,
+			)
+			return http.StatusForbidden, fmt.Errorf("access forbidden: global connection requires Super Admin or Master Admin Secret")
+		}
+		if targetGroupID != nil && *targetGroupID != "" {
+			if consumer.GroupID == nil || *consumer.GroupID != *targetGroupID {
+				slog.Warn("instant crud BOLA access attempt blocked",
+					"reason", "consumer group mismatch",
+					"consumer_id", consumer.ID,
+					"conn_id", connID,
+					"target_group_id", *targetGroupID,
+				)
+				return http.StatusForbidden, fmt.Errorf("access forbidden: consumer is not authorized for connection %s", connID)
+			}
+		}
+		return http.StatusOK, nil
 	}
 
-	// 3. Check JWT token (API client token or Admin console token)
+	// 4. Check JWT token (API client token or Admin console token)
 	if token != "" {
 		if h.apiClientAuth != nil {
 			claims, err := h.apiClientAuth.ValidateToken(token)
 			if err == nil && claims != nil {
-				return nil
+				// Object-level authorization check for API Client:
+				if connFound && (targetGroupID == nil || *targetGroupID == "") {
+					slog.Warn("instant crud global connection access attempt blocked",
+						"reason", "api client cannot access ungrouped/global connection",
+						"client_id", claims.APIClientID,
+						"conn_id", connID,
+					)
+					return http.StatusForbidden, fmt.Errorf("access forbidden: global connection requires Super Admin or Master Admin Secret")
+				}
+				if targetGroupID != nil && *targetGroupID != "" {
+					if claims.GroupID == "" || claims.GroupID != *targetGroupID {
+						slog.Warn("instant crud BOLA access attempt blocked",
+							"reason", "api client group mismatch",
+							"client_id", claims.APIClientID,
+							"conn_id", connID,
+							"target_group_id", *targetGroupID,
+						)
+						return http.StatusForbidden, fmt.Errorf("access forbidden: api client is not authorized for connection %s", connID)
+					}
+				}
+				return http.StatusOK, nil
 			}
 		}
+
 		if h.jwtSecret != "" {
 			parsed, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
 				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -87,12 +150,28 @@ func (h *InstantCRUDHandler) AuthenticateRequest(r *http.Request) error {
 				return []byte(h.jwtSecret), nil
 			})
 			if err == nil && parsed.Valid {
-				return nil
+				if connFound && (targetGroupID == nil || *targetGroupID == "") {
+					if mapClaims, ok := parsed.Claims.(jwt.MapClaims); ok {
+						role, _ := mapClaims["role"].(string)
+						if role != "SUPER_ADMIN" {
+							return http.StatusForbidden, fmt.Errorf("access forbidden: global connection requires Super Admin")
+						}
+					}
+				}
+				return http.StatusOK, nil
 			}
 		}
 	}
 
-	return fmt.Errorf("authentication required: provide valid X-API-Key, Bearer token, or X-Admin-Secret")
+	return http.StatusUnauthorized, fmt.Errorf("authentication required: provide valid X-API-Key, Bearer token, or X-Admin-Secret")
+}
+
+// AuthenticateRequest verifies that the request carries a valid API key, Bearer JWT, or Admin Secret
+func (h *InstantCRUDHandler) AuthenticateRequest(r *http.Request) error {
+	vars := mux.Vars(r)
+	connID := vars["connId"]
+	_, err := h.AuthorizeConnectionAccess(r, connID)
+	return err
 }
 
 // getDB retrieves a database connection from the connection pool or falls back to direct connection

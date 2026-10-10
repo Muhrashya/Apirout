@@ -63,7 +63,7 @@ func buildAdminAPIRouter(d routerDeps) *mux.Router {
 	// API V1 Subrouter for Admin Management
 	apiV1 := r.PathPrefix("/api/v1").Subrouter()
 	apiV1.HandleFunc("/auth/setup-status", authHandler.SetupStatus).Methods("GET")
-	apiV1.HandleFunc("/auth/setup", authHandler.Setup).Methods("POST")
+	apiV1.Handle("/auth/setup", d.loginLimiter.Handler(http.HandlerFunc(authHandler.Setup))).Methods("POST")
 	apiV1.Handle("/auth/login", d.loginLimiter.Handler(http.HandlerFunc(authHandler.Login))).Methods("POST")
 
 	// Branding & White-Labeling (GET is public, PUT is ADMIN/SUPER_ADMIN only)
@@ -84,7 +84,7 @@ func buildAdminAPIRouter(d routerDeps) *mux.Router {
 	}).Methods("GET")
 
 	// Users management (SUPER_ADMIN only)
-	userHandler := server.NewUserHandler(d.reg)
+	userHandler := server.NewUserHandler(d.reg, d.authService)
 	adminRouter.Handle("/users", d.authService.RequireRole("SUPER_ADMIN")(http.HandlerFunc(userHandler.List))).Methods("GET")
 	adminRouter.Handle("/users", d.authService.RequireRole("SUPER_ADMIN")(http.HandlerFunc(userHandler.Create))).Methods("POST")
 	adminRouter.Handle("/users/{id}", d.authService.RequireRole("SUPER_ADMIN")(http.HandlerFunc(userHandler.Update))).Methods("PUT")
@@ -224,12 +224,10 @@ func buildAdminAPIRouter(d routerDeps) *mux.Router {
 	adminRouter.Handle("/metadata/export", d.authService.RequireRole("ADMIN", "SUPER_ADMIN")(http.HandlerFunc(gitopsHandler.Export))).Methods("GET")
 	adminRouter.Handle("/metadata/import", d.authService.RequireRole("ADMIN", "SUPER_ADMIN")(http.HandlerFunc(gitopsHandler.Import))).Methods("POST")
 
-	// OpenAPI & Postman
+	// OpenAPI & Postman (Protected under adminRouter)
 	docsHandler := server.NewDocsHandler(d.openapiService, d.postmanService, d.reg)
 	adminRouter.HandleFunc("/openapi.json", docsHandler.OpenAPI).Methods("GET")
 	adminRouter.HandleFunc("/postman.json", docsHandler.Postman).Methods("GET")
-	r.HandleFunc("/openapi.json", docsHandler.OpenAPI).Methods("GET")
-	r.HandleFunc("/postman.json", docsHandler.Postman).Methods("GET")
 
 	return r
 }
