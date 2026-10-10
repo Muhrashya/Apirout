@@ -119,3 +119,15 @@ A consolidated database interaction port encapsulating connection pooling, SSH b
 ### Consistent Hash Ring
 An upstream load-balancing implementation in the Target Pool module utilizing Ketama-style virtual node distribution on a 32-bit integer ring, ensuring that adding or removing upstream targets redistributes at most 1/N of keys to preserve cache and session locality.
 
+### Egress Shield
+A centralized network outbound validation boundary (`internal/core/egress/`) that intercepts all egress requests—including database connection probes, service target relays, upstream target definitions, and OAuth2 client credential token exchanges—enforcing strict destination IP validation against loopback, link-local metadata (`169.254.0.0/16`), and unapproved private networks to prevent Server-Side Request Forgery (SSRF).
+
+### Cryptographic Plane Separation
+The architectural isolation between the Control Plane token signing key (`CONSOLE_JWT_SECRET`) and Data Plane token evaluation keys (`GATEWAY_JWT_SECRET`), ensuring that management tokens cannot be reused to authenticate against public consumer routes and vice-versa.
+
+### AEAD Credential Storage
+An authenticated at-rest symmetric encryption scheme utilizing AES-256-GCM with 96-bit unique nonces and integrity tags (`gcm:` tag prefix), ensuring any ciphertext tampering or bit-flipping on database passwords and inbound authentication plugin secrets is immediately detected and rejected.
+
+### Cross-Plane Token Guard
+A runtime authorization enforcement in the gateway Data Plane authentication engine that parses JWT claims and explicitly rejects tokens bearing administrative claims (`typ: "admin"` or administrative user identifiers), preventing privilege elevation across boundaries.
+
