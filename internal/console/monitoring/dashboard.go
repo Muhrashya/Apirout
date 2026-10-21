@@ -118,3 +118,37 @@ func (s *Service) GetRequestsPaginated(filter registry.RequestFilter, page, limi
 	return s.registry.GetRecentRequestsPaginated(filter, page, limit)
 }
 
+// StartRetentionPruner starts a background ticker that periodically prunes stale audit logs
+func (s *Service) StartRetentionPruner(retentionDays int, interval time.Duration) func() {
+	if interval <= 0 {
+		interval = 1 * time.Hour
+	}
+	ticker := time.NewTicker(interval)
+	done := make(chan struct{})
+
+	// Run initial prune asynchronously
+	go func() {
+		if retentionDays > 0 {
+			_, _ = s.registry.PruneAuditLogs(retentionDays)
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				ticker.Stop()
+				return
+			case <-ticker.C:
+				if retentionDays > 0 {
+					_, _ = s.registry.PruneAuditLogs(retentionDays)
+				}
+			}
+		}
+	}()
+
+	return func() {
+		close(done)
+	}
+}
+

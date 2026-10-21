@@ -3,6 +3,7 @@ package executor
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -36,6 +37,7 @@ func (s *ingressStage) Execute(c *pipeline.Context) error {
 	// 1. In-Memory Radix Route Matcher (<1ms)
 	var endpoint *models.Endpoint
 	var pathParams map[string]string
+	var preflightAllowedMethods []string
 	curRouter := s.handler.router.Load()
 	if curRouter != nil {
 		res, matchErr := curRouter.Match(c.Path, r.Method)
@@ -43,25 +45,49 @@ func (s *ingressStage) Execute(c *pipeline.Context) error {
 			endpoint = res.Endpoint
 			pathParams = res.Params
 		} else if errors.Is(matchErr, router.ErrMethodNotAllowed) {
-			c.SetError(http.StatusMethodNotAllowed, "Method not allowed")
-			extra := make(map[string]string)
-			if len(res.AllowedMethods) > 0 {
-				extra["Allow"] = strings.Join(res.AllowedMethods, ", ")
+			if r.Method == http.MethodOptions && res != nil && res.Endpoint != nil {
+				// Preflight Short-Circuiting: route exists, allow preflight evaluation
+				endpoint = res.Endpoint
+				pathParams = res.Params
+				preflightAllowedMethods = res.AllowedMethods
+			} else {
+				c.SetError(http.StatusMethodNotAllowed, "Method not allowed")
+				extra := make(map[string]string)
+				if len(res.AllowedMethods) > 0 {
+					extra["Allow"] = strings.Join(res.AllowedMethods, ", ")
+				}
+				responder.Error(rec, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, "Method not allowed", extra)
+				return nil
 			}
-			responder.Error(rec, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, "Method not allowed", extra)
-			return nil
+		}
+	}
+
+	// Dynamic Unified Database Pipeline: auto-resolve /api/v1/instant/{connId}/*
+	if endpoint == nil && strings.HasPrefix(c.Path, "/api/v1/instant/") {
+		parts := strings.Split(strings.Trim(c.Path, "/"), "/")
+		if len(parts) >= 4 { // ["api", "v1", "instant", "{connId}", ...]
+			connID := parts[3]
+			endpoint = &models.Endpoint{
+				ID:               "instant:" + connID,
+				Name:             "Instant Database API",
+				Method:           "ANY",
+				Path:             "/api/v1/instant/" + connID + "/*",
+				Enabled:          true,
+				IsPublic:         true, // Auth handled via AuthorizeConnectionAccess in stage_upstream
+				RateLimitEnabled: true,
+				RateLimitRPM:     300,
+				RateLimitBurst:   50,
+				CorsOrigins:      "*",
+			}
 		}
 	}
 
 	// Fallback to registry reader if route not found in in-memory tree
 	if endpoint == nil && s.handler.reader != nil {
 		ep, err := s.handler.reader.GetEndpointByPath(c.Path)
-		if err != nil {
-			c.SetError(http.StatusInternalServerError, "Database error")
-			responder.Error(rec, r, http.StatusInternalServerError, responder.ErrCodeInternalError, "Database error")
-			return nil
+		if err == nil && ep != nil {
+			endpoint = ep
 		}
-		endpoint = ep
 	}
 
 	if endpoint == nil {
@@ -80,20 +106,30 @@ func (s *ingressStage) Execute(c *pipeline.Context) error {
 		return nil
 	}
 
-	// Match HTTP method (for fallback paths)
-	if endpoint.Method != "*" && endpoint.Method != "ALL" && endpoint.Method != "ANY" && endpoint.Method != "" && !strings.Contains(endpoint.Method, r.Method) {
+	// Match HTTP method (for fallback paths and non-OPTIONS calls)
+	if r.Method != http.MethodOptions && endpoint.Method != "*" && endpoint.Method != "ALL" && endpoint.Method != "ANY" && endpoint.Method != "" && !strings.Contains(endpoint.Method, r.Method) {
 		c.SetError(http.StatusMethodNotAllowed, "Method not allowed")
 		responder.Error(rec, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, "Method not allowed", map[string]string{"Allow": endpoint.Method})
 		return nil
 	}
 
 	// Host-based / Domain Routing check
-	host := r.Host
+	rawHost := r.Host
 	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
-		host = xfh
+		trustedChecker := iputil.GetGlobalTrustedChecker()
+		if trustedChecker != nil && trustedChecker.IsTrusted(c.ClientIP) {
+			if commaIdx := strings.Index(xfh, ","); commaIdx != -1 {
+				rawHost = strings.TrimSpace(xfh[:commaIdx])
+			} else {
+				rawHost = strings.TrimSpace(xfh)
+			}
+		}
 	}
-	if idx := strings.Index(host, ":"); idx != -1 {
-		host = host[:idx]
+	host := rawHost
+	if h, _, err := net.SplitHostPort(rawHost); err == nil {
+		host = h
+	} else {
+		host = strings.Trim(host, "[]")
 	}
 
 	// 1. Gateway-level host validation against registered gateway domains
@@ -119,13 +155,20 @@ func (s *ingressStage) Execute(c *pipeline.Context) error {
 			rec.Header().Set("Vary", "Origin")
 			rec.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
-	} else if endpoint.CorsOrigins == "*" {
+	} else if endpoint.CorsOrigins == "*" || endpoint.CorsOrigins == "" {
 		rec.Header().Set("Access-Control-Allow-Origin", "*")
 	}
 
 	// Handle preflight OPTIONS request for endpoint
 	if r.Method == http.MethodOptions {
-		rec.Header().Set("Access-Control-Allow-Methods", endpoint.Method)
+		allowedMethods := endpoint.Method
+		if len(preflightAllowedMethods) > 0 {
+			allowedMethods = strings.Join(preflightAllowedMethods, ", ")
+		}
+		if allowedMethods == "*" || allowedMethods == "ANY" || allowedMethods == "ALL" || allowedMethods == "" {
+			allowedMethods = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+		}
+		rec.Header().Set("Access-Control-Allow-Methods", allowedMethods)
 		rec.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Admin-Secret, X-Request-ID, X-Correlation-ID")
 		rec.Header().Set("Access-Control-Max-Age", "86400")
 		rec.WriteHeader(http.StatusNoContent)

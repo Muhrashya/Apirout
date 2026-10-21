@@ -393,10 +393,7 @@ func (h *Handler) reverseProxyRequest(w http.ResponseWriter, r *http.Request, en
 		// Path resolution
 		subPath := r.URL.Path
 		if endpoint.StripPath {
-			subPath = strings.TrimPrefix(subPath, endpoint.Path)
-			if subPath != "" && !strings.HasPrefix(subPath, "/") {
-				subPath = "/" + subPath
-			}
+			subPath = stripStaticRoutePrefix(subPath, endpoint.Path)
 		}
 
 		basePath := strings.TrimSuffix(service.Path, "/")
@@ -535,3 +532,40 @@ func (h *Handler) isGatewayHostAllowed(host string) bool {
 	}
 	return false
 }
+
+// stripStaticRoutePrefix strips the static prefix of a route from an incoming request path,
+// safely handling wildcard paths (e.g. /api/v1/users/*) and parameter segments (e.g. /api/v1/users/:id).
+func stripStaticRoutePrefix(requestPath, routePath string) string {
+	staticPrefix := routePath
+	starIdx := strings.Index(routePath, "*")
+	colonIdx := strings.Index(routePath, ":")
+
+	firstToken := -1
+	if starIdx != -1 && colonIdx != -1 {
+		if starIdx < colonIdx {
+			firstToken = starIdx
+		} else {
+			firstToken = colonIdx
+		}
+	} else if starIdx != -1 {
+		firstToken = starIdx
+	} else if colonIdx != -1 {
+		firstToken = colonIdx
+	}
+
+	if firstToken != -1 {
+		staticPrefix = routePath[:firstToken]
+	}
+
+	staticPrefix = strings.TrimSuffix(staticPrefix, "/")
+	if staticPrefix != "" && strings.HasPrefix(requestPath, staticPrefix) {
+		remainder := strings.TrimPrefix(requestPath, staticPrefix)
+		if remainder == "" || !strings.HasPrefix(remainder, "/") {
+			remainder = "/" + remainder
+		}
+		return remainder
+	}
+
+	return requestPath
+}
+

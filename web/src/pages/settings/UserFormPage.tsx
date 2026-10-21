@@ -13,12 +13,27 @@ export default function UserFormPage() {
     const [isLoading, setIsLoading] = useState(isEdit);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
 
     const [form, setForm] = useState({
         email: '',
         password: '',
         role: 'DEVELOPER' as 'SUPER_ADMIN' | 'ADMIN' | 'DEVELOPER' | 'MAINTAINER',
+        groupId: '',
     });
+
+    useEffect(() => {
+        const fetchGroups = async () => {
+            try {
+                const res = await apiClient.get<any>('/groups');
+                const list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
+                setGroups(list);
+            } catch {
+                // Non-fatal if groups cannot be loaded
+            }
+        };
+        fetchGroups();
+    }, []);
 
     useEffect(() => {
         if (isEdit && id) {
@@ -37,6 +52,7 @@ export default function UserFormPage() {
                     email: target.email || '',
                     password: '',
                     role: target.role || 'DEVELOPER',
+                    groupId: target.group_id || '',
                 });
             } else {
                 toast.error('User not found');
@@ -70,6 +86,7 @@ export default function UserFormPage() {
                     email: form.email.trim(),
                     role: form.role,
                     password: form.password || undefined,
+                    group_id: form.groupId || '',
                 });
                 toast.success('User updated successfully');
             } else {
@@ -77,6 +94,7 @@ export default function UserFormPage() {
                     email: form.email.trim(),
                     password: form.password,
                     role: form.role,
+                    group_id: form.groupId || undefined,
                 });
                 toast.success('User account created successfully');
             }
@@ -182,7 +200,7 @@ export default function UserFormPage() {
                         Role &amp; Permissions Governance
                     </h2>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '20px' }}>
                         <div className="form-group">
                             <label className="label">Assigned Role *</label>
                             <select
@@ -196,7 +214,26 @@ export default function UserFormPage() {
                                 <option value="SUPER_ADMIN">Super Admin (Full Root System Privileges)</option>
                             </select>
                             <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                                Dictates which sections, API keys, and administrative operations this user can access.
+                                Dictates accessible sections and operational capabilities.
+                            </span>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="label">Tenant Group (Boundary Isolation)</label>
+                            <select
+                                className="select"
+                                value={form.groupId}
+                                onChange={e => setForm(prev => ({ ...prev, groupId: e.target.value }))}
+                            >
+                                <option value="">Global / Unassigned (No Tenant Boundary)</option>
+                                {groups.map(g => (
+                                    <option key={g.id} value={g.id}>
+                                        {g.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                                Associates user with a specific tenant group boundary.
                             </span>
                         </div>
 

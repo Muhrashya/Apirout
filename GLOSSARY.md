@@ -167,4 +167,14 @@ A defensive key-derivation strategy in the authentication pipeline stage that is
 ### Secure-by-Default Instant API
 A security baseline for auto-generated database REST routes requiring explicit API key authorization (`is_public = false`) and 60 RPM rate limits by default, while quoting table names with dialect-specific identifiers to prevent keyword collision and unauthenticated exposure.
 
+### Preflight Short-Circuiting
+An ingress stage optimization that intercepts HTTP `OPTIONS` requests matching route paths and emits compliant CORS preflight response headers (`204 No Content`) prior to strict route method matching, preventing erroneous `405 Method Not Allowed` rejections for browser single-page applications.
 
+### Unified Database Pipeline
+An architectural consolidation where all instant REST table CRUD and standalone SQL query operations are routed through the core multi-stage gateway execution pipeline, ensuring consistent rate limiting, client IP allowlists, host validation, and request audit telemetry.
+
+### Synthetic Target Key
+A deterministic, edge-local tracking identifier derived for single-instance direct backend services (e.g. `direct:<service_id>`) enabling the passive circuit breaker to record failure counters and isolate failing standalone targets.
+
+### Telemetry Retention Pruner
+An automated background maintenance worker that periodically purges expired request audit logs based on a configurable time-to-live policy (`AUDIT_LOG_RETENTION_DAYS`), preventing table bloat and disk exhaustion in high-throughput environments.

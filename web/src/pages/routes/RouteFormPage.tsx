@@ -147,7 +147,12 @@ export default function RouteFormPage() {
             setFormData(prev => ({ ...prev, service_id: '' }));
         } else if (type === 'instant_api') {
             const firstDbService = services.find(s => s.connection_id || s.protocol === 'database');
-            setFormData(prev => ({ ...prev, service_id: firstDbService ? firstDbService.id : '', query_id: '' }));
+            setFormData(prev => ({
+                ...prev,
+                service_id: firstDbService ? firstDbService.id : '',
+                query_id: '',
+                method: prev.method === 'GET' ? 'ANY' : prev.method
+            }));
         }
     };
 
@@ -338,6 +343,7 @@ export default function RouteFormPage() {
                                 value={formData.method}
                                 onChange={e => setFormData(prev => ({ ...prev, method: e.target.value }))}
                             >
+                                <option value="ANY">ANY (All Methods)</option>
                                 <option value="GET">GET</option>
                                 <option value="POST">POST</option>
                                 <option value="PUT">PUT</option>

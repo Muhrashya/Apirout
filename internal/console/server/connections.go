@@ -17,6 +17,7 @@ import (
 	"github.com/apirout/apirout/internal/core/targets"
 
 	"github.com/gorilla/mux"
+	"os"
 )
 
 // ConnectionHandler handles connection management
@@ -31,6 +32,17 @@ func NewConnectionHandler(reg *registry.Registry, encryptionKey string) *Connect
 		registry:      reg,
 		encryptionKey: encryptionKey,
 	}
+}
+
+func connectionEgressPolicy() egress.Policy {
+	policy := egress.Policy{AllowPrivate: true}
+	if os.Getenv("ALLOW_LOOPBACK_CONNECTIONS") == "true" {
+		policy.AllowLoopback = true
+	}
+	if os.Getenv("ALLOW_PRIVATE_CONNECTIONS") == "false" {
+		policy.AllowPrivate = false
+	}
+	return policy
 }
 
 // List returns all connections (filtered by user's groups for non-SUPER_ADMIN)
@@ -100,9 +112,11 @@ type CreateConnectionRequest struct {
 	Host          string  `json:"host"`
 	Port          int     `json:"port"`
 	DBName        string  `json:"dbname"`
+	DBNameAlt     string  `json:"db_name"`
 	Username      string  `json:"username"`
 	Password      string  `json:"password"`
 	SSLMode       string  `json:"sslmode"`
+	SSLModeAlt    string  `json:"ssl_mode"`
 	IsReadOnly    bool    `json:"is_read_only"`
 	SSHEnabled    bool    `json:"ssh_enabled"`
 	SSHHost       *string `json:"ssh_host"`
@@ -111,6 +125,15 @@ type CreateConnectionRequest struct {
 	SSHAuthMethod *string `json:"ssh_auth_method"`
 	SSHPassword   *string `json:"ssh_password"`
 	SSHPrivateKey *string `json:"ssh_private_key"`
+}
+
+func (r *CreateConnectionRequest) normalize() {
+	if r.DBName == "" && r.DBNameAlt != "" {
+		r.DBName = r.DBNameAlt
+	}
+	if r.SSLMode == "" && r.SSLModeAlt != "" {
+		r.SSLMode = r.SSLModeAlt
+	}
 }
 
 // Create creates a new connection
@@ -126,6 +149,8 @@ func (h *ConnectionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	req.normalize()
+
 
 	// SECURITY: Verify permission on the group
 	if req.GroupID != nil {
@@ -278,6 +303,7 @@ func (h *ConnectionHandler) Update(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	req.normalize()
 
 	// Update fields
 	if req.Name != "" {
@@ -309,6 +335,27 @@ func (h *ConnectionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if req.SSLMode != "" {
 		existing.SSLMode = req.SSLMode
 	}
+
+	// RBAC Group Guard: Only SUPER_ADMIN can make a connection global (GroupID = nil)
+	// or move connections to a new group without having PermManageConnections on that group.
+	if claims.Role != "SUPER_ADMIN" {
+		if existing.GroupID != nil && req.GroupID == nil {
+			httputil.WriteJSONError(w, http.StatusForbidden, "Only Super Admin can make a connection global")
+			return
+		}
+		if req.GroupID != nil && (existing.GroupID == nil || *existing.GroupID != *req.GroupID) {
+			canManage, err := h.registry.CanManageResource(claims.UserID, *req.GroupID, registry.PermManageConnections)
+			if err != nil {
+				httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to check permissions")
+				return
+			}
+			if !canManage {
+				httputil.WriteJSONError(w, http.StatusForbidden, "No permission to assign connection to this group")
+				return
+			}
+		}
+	}
+
 	existing.GroupID = req.GroupID
 	existing.IsReadOnly = req.IsReadOnly
 	existing.SSHEnabled = req.SSHEnabled
@@ -376,13 +423,24 @@ type TestConnectionResponse struct {
 
 // TestRawRequest represents payload to test an unsaved connection
 type TestRawRequest struct {
-	DBType   string `json:"db_type"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	DBName   string `json:"dbname"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	SSLMode  string `json:"sslmode"`
+	DBType     string `json:"db_type"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	DBName     string `json:"dbname"`
+	DBNameAlt  string `json:"db_name"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	SSLMode    string `json:"sslmode"`
+	SSLModeAlt string `json:"ssl_mode"`
+}
+
+func (r *TestRawRequest) normalize() {
+	if r.DBName == "" && r.DBNameAlt != "" {
+		r.DBName = r.DBNameAlt
+	}
+	if r.SSLMode == "" && r.SSLModeAlt != "" {
+		r.SSLMode = r.SSLModeAlt
+	}
 }
 
 // TestRaw tests an unsaved connection directly
@@ -398,6 +456,8 @@ func (h *ConnectionHandler) TestRaw(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	req.normalize()
+
 
 	if req.DBType == "redis" {
 		if req.DBName == "" {
@@ -428,8 +488,8 @@ func (h *ConnectionHandler) TestRaw(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// SSRF Protection: Prevent probing internal loopback, link-local metadata, or private IP ranges (SEC-15)
-	if err := egress.ValidateSafeHost(req.Host); err != nil {
+	// SSRF Protection: Prevent probing loopback and link-local cloud metadata (SEC-15)
+	if err := egress.ValidateSafeHost(req.Host, connectionEgressPolicy()); err != nil {
 		errMsg := fmt.Sprintf("Security violation: %v", err)
 		httputil.WriteJSON(w, http.StatusBadRequest, TestConnectionResponse{Success: false, Error: &errMsg})
 		return
@@ -482,6 +542,13 @@ func (h *ConnectionHandler) Test(w http.ResponseWriter, r *http.Request) {
 	// Check access (Read/Use)
 	if err := h.checkConnectionAccess(claims, conn, registry.PermManageQueries); err != nil {
 		httputil.WriteJSONError(w, http.StatusForbidden, "No permission for this connection")
+		return
+	}
+
+	// SSRF Protection: Prevent probing loopback and link-local cloud metadata (SEC-15)
+	if err := egress.ValidateSafeHost(conn.Host, connectionEgressPolicy()); err != nil {
+		errMsg := fmt.Sprintf("Security violation: %v", err)
+		httputil.WriteJSON(w, http.StatusBadRequest, TestConnectionResponse{Success: false, Error: &errMsg})
 		return
 	}
 
@@ -694,7 +761,7 @@ func (h *ConnectionHandler) GenerateEndpoints(w http.ResponseWriter, r *http.Req
 
 		ep := &registry.Endpoint{
 			GroupID:             conn.GroupID,
-			Method:              "GET",
+			Method:              "ANY",
 			Path:                path,
 			QueryID:             &q.ID,
 			Enabled:             true,

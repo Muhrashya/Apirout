@@ -50,8 +50,9 @@ type Config struct {
 	JWTTTL             time.Duration
 	APITokenTTL        time.Duration
 	EncryptionKey      string
-	GlobalRateLimitRPM int
-	MaxRequestBodyMB   int // Maximum incoming request body size in megabytes (default: 10)
+	GlobalRateLimitRPM    int
+	MaxRequestBodyMB      int // Maximum incoming request body size in megabytes (default: 10)
+	AuditLogRetentionDays int // Days to retain audit logs before automated pruning (default: 14)
 
 	// Registry Database (PostgreSQL / SQLite)
 	DBType            string
@@ -137,8 +138,9 @@ func Load() (*Config, error) {
 		GatewayJWTSecret:   getEnvAny("GATEWAY_JWT_SECRET", "APIROUT_GATEWAY_JWT_SECRET", ""),
 		AdminSecret:        getEnvAny("ADMIN_SECRET", "APIROUT_ADMIN_SECRET", ""),
 		EncryptionKey:      getEnvAny("APP_ENCRYPTION_KEY", "APIROUT_ENCRYPTION_KEY", "aes-encryption-key-32-chars-ok!"),
-		GlobalRateLimitRPM: getEnvInt("GLOBAL_RATE_LIMIT_RPM", 600),
-		MaxRequestBodyMB:   getEnvInt("MAX_REQUEST_BODY_MB", 10),
+		GlobalRateLimitRPM:    getEnvInt("GLOBAL_RATE_LIMIT_RPM", 600),
+		MaxRequestBodyMB:      getEnvInt("MAX_REQUEST_BODY_MB", 10),
+		AuditLogRetentionDays: getEnvInt("AUDIT_LOG_RETENTION_DAYS", 14),
 
 		DBType:            strings.ToLower(getEnvAny("DB_TYPE", "APIROUT_DB_TYPE", "postgres")),
 		DBPath:            getEnvAny("DB_PATH", "APIROUT_DB_PATH", ""),

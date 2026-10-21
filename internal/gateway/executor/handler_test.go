@@ -1,11 +1,18 @@
 package executor
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/apirout/apirout/internal/core/models"
+	"github.com/apirout/apirout/internal/core/router"
+	"github.com/apirout/apirout/internal/core/upstream"
 	"github.com/apirout/apirout/internal/gateway/pipeline"
 )
 
@@ -204,3 +211,171 @@ func TestStageAuth_RateLimiterAnonymousIPIsolation(t *testing.T) {
 		t.Fatalf("request from distinct IP2 should have its own token bucket and be allowed, got 429")
 	}
 }
+
+func TestStageIngress_PreflightShortCircuitAndIPv6(t *testing.T) {
+	h := &Handler{}
+
+	ep := models.Endpoint{
+		ID:          "ep-orders-post",
+		Path:        "/api/v1/orders",
+		Method:      "POST",
+		CorsOrigins: "*",
+		Enabled:     true,
+	}
+	rtr := router.BuildFromEndpoints([]models.Endpoint{ep})
+	h.SetRouter(rtr)
+
+	stage := newIngressStage(h)
+
+	// 1. Preflight OPTIONS request for a POST route with IPv6 Host literal
+	req := httptest.NewRequest("OPTIONS", "/api/v1/orders", nil)
+	req.Host = "[::1]:8000"
+	rec := httptest.NewRecorder()
+	ctx := pipeline.NewContext(rec, req)
+
+	err := stage.Execute(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error executing stage: %v", err)
+	}
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected preflight status 204 No Content, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	allowMethods := rec.Header().Get("Access-Control-Allow-Methods")
+	if !strings.Contains(allowMethods, "POST") {
+		t.Errorf("expected Access-Control-Allow-Methods to include POST, got %q", allowMethods)
+	}
+
+	allowHeaders := rec.Header().Get("Access-Control-Allow-Headers")
+	if allowHeaders == "" {
+		t.Errorf("expected Access-Control-Allow-Headers to be set")
+	}
+
+	// 2. Non-existent route OPTIONS request should still return 404
+	req404 := httptest.NewRequest("OPTIONS", "/api/v1/nonexistent", nil)
+	rec404 := httptest.NewRecorder()
+	ctx404 := pipeline.NewContext(rec404, req404)
+	_ = stage.Execute(ctx404)
+	if rec404.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown route preflight, got %d", rec404.Code)
+	}
+}
+
+func TestStripStaticRoutePrefix(t *testing.T) {
+	tests := []struct {
+		name        string
+		requestPath string
+		routePath   string
+		want        string
+	}{
+		{
+			name:        "Wildcard trailing star",
+			requestPath: "/api/v1/users/profile",
+			routePath:   "/api/v1/users/*",
+			want:        "/profile",
+		},
+		{
+			name:        "Wildcard exact root match",
+			requestPath: "/api/v1/users",
+			routePath:   "/api/v1/users/*",
+			want:        "/",
+		},
+		{
+			name:        "Parameterized route with ID",
+			requestPath: "/api/v1/orders/42",
+			routePath:   "/api/v1/orders/:id",
+			want:        "/42",
+		},
+		{
+			name:        "Static route without tokens",
+			requestPath: "/api/v1/checkout/pay",
+			routePath:   "/api/v1/checkout",
+			want:        "/pay",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripStaticRoutePrefix(tt.requestPath, tt.routePath)
+			if got != tt.want {
+				t.Errorf("stripStaticRoutePrefix(%q, %q) = %q, want %q", tt.requestPath, tt.routePath, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDirectBackend_CircuitBreakerTripping(t *testing.T) {
+	cb := upstream.NewPassiveCircuitBreaker(3, 10*time.Second)
+	serviceID := "svc-direct-123"
+	syntheticID := "direct:" + serviceID
+
+	// 1. Initially healthy
+	if !cb.Allow(syntheticID) {
+		t.Fatalf("expected direct service to be allowed initially")
+	}
+
+	// 2. Record 2 failures (< threshold of 3)
+	cb.RecordFailure(syntheticID)
+	cb.RecordFailure(syntheticID)
+	if !cb.Allow(syntheticID) {
+		t.Fatalf("expected direct service to still be allowed after 2 failures")
+	}
+
+	// 3. 3rd failure reaches threshold, should trip circuit breaker
+	cb.RecordFailure(syntheticID)
+	if cb.Allow(syntheticID) {
+		t.Fatalf("expected direct service circuit breaker to trip after 3 failures")
+	}
+}
+
+func TestReverseProxy_WildcardPathStrippingEndToEnd(t *testing.T) {
+	var receivedPath string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	u, _ := url.Parse(ts.URL)
+	host, portStr, _ := net.SplitHostPort(u.Host)
+	port := 80
+	if p, err := strconv.Atoi(portStr); err == nil {
+		port = p
+	}
+
+	h := &Handler{
+		circuitBreaker: upstream.NewPassiveCircuitBreaker(3, 15*time.Second),
+	}
+
+	ep := &models.Endpoint{
+		Name:      "Wildcard Route",
+		Path:      "/api/v1/users/*",
+		StripPath: true,
+	}
+
+	svc := &models.Service{
+		ID:       "svc-direct-test",
+		Name:     "Direct Service",
+		Protocol: "http",
+		Host:     host,
+		Port:     port,
+		Path:     "",
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/users/profile", nil)
+	rec := httptest.NewRecorder()
+
+	h.reverseProxyRequest(rec, req, ep, svc, host, port, "direct:svc-direct-test", nil, nil)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from reverse proxy, got %d", rec.Code)
+	}
+
+	if receivedPath != "/profile" {
+		t.Errorf("expected upstream to receive path '/profile', got %q", receivedPath)
+	}
+}
+
+

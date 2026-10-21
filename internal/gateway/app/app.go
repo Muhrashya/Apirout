@@ -116,33 +116,6 @@ func NewWithReader(cfg *config.Config, logger *slog.Logger, reader *registry.Rea
 		})
 	}).Methods("GET")
 
-	// Hasura-style Instant Database REST API (protected with auth)
-	instantRouter := r.PathPrefix("/api/v1/instant/{connId}").Subrouter()
-	instantRouter.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			vars := mux.Vars(r)
-			connID := vars["connId"]
-			status, err := instantHandler.AuthorizeConnectionAccess(r, connID)
-			if err != nil {
-				if status == http.StatusForbidden {
-					responder.Error(w, r, http.StatusForbidden, responder.ErrCodeForbidden, err.Error())
-				} else if status == http.StatusNotFound {
-					responder.Error(w, r, http.StatusNotFound, responder.ErrCodeNotFound, err.Error())
-				} else {
-					responder.Error(w, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, err.Error())
-				}
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	})
-	instantRouter.HandleFunc("/schema", instantHandler.GetSchema).Methods("GET")
-	instantRouter.HandleFunc("/{table}", instantHandler.QueryTable).Methods("GET")
-	instantRouter.HandleFunc("/{table}", instantHandler.InsertRow).Methods("POST")
-	instantRouter.HandleFunc("/{table}/{id}", instantHandler.GetRow).Methods("GET")
-	instantRouter.HandleFunc("/{table}/{id}", instantHandler.UpdateRow).Methods("PUT", "PATCH")
-	instantRouter.HandleFunc("/{table}/{id}", instantHandler.DeleteRow).Methods("DELETE")
-
 	r.Handle("/api/login", loginLimiter.Handler(http.HandlerFunc(apiClientHandler.Login))).Methods("POST")
 	r.PathPrefix("/api/").HandlerFunc(executorHandler.Execute)
 

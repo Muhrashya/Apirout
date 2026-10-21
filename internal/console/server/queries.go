@@ -386,6 +386,17 @@ func (h *QueryHandler) Preview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Validate SQL query statement against SELECT-only and injection guards
+	if err := executor.ValidateSQL(req.SQL); err != nil {
+		if conn.IsReadOnly {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Connection is configured as read-only: mutating operations are prohibited ("+err.Error()+")")
+			return
+		}
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid query: "+err.Error())
+		return
+	}
+
 	results, err := h.executor.PreviewQuery(req.ConnectionID, req.SQL, req.Limit, req.Offset)
 	if err != nil {
 		httputil.WriteJSONError(w, http.StatusBadRequest, "Query failed: "+err.Error())

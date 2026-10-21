@@ -40,14 +40,46 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to list users")
 		return
 	}
-	httputil.WriteJSONData(w, http.StatusOK, users)
+
+	type UserItem struct {
+		ID                string  `json:"id"`
+		Email             string  `json:"email"`
+		Role              string  `json:"role"`
+		GroupID           *string `json:"group_id,omitempty"`
+		PasswordChangedAt *string `json:"password_changed_at,omitempty"`
+		CreatedAt         string  `json:"created_at"`
+	}
+
+	res := make([]UserItem, 0, len(users))
+	for _, u := range users {
+		var gid *string
+		gids, _ := h.registry.GetUserGroupIDs(u.ID)
+		if len(gids) > 0 {
+			gid = &gids[0]
+		}
+		var pwChanged *string
+		if u.PasswordChangedAt != nil {
+			s := u.PasswordChangedAt.Format("2006-01-02T15:04:05Z07:00")
+			pwChanged = &s
+		}
+		res = append(res, UserItem{
+			ID:                u.ID,
+			Email:             u.Email,
+			Role:              u.Role,
+			GroupID:           gid,
+			PasswordChangedAt: pwChanged,
+			CreatedAt:         u.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	httputil.WriteJSONData(w, http.StatusOK, res)
 }
 
 // CreateUserRequest represents user creation request
 type CreateUserRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Email    string  `json:"email"`
+	Password string  `json:"password"`
+	Role     string  `json:"role"`
+	GroupID  *string `json:"group_id,omitempty"`
 }
 
 // Create creates a new user
@@ -80,6 +112,10 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.GroupID != nil && *req.GroupID != "" {
+		_ = h.registry.AddUserToGroup(user.ID, *req.GroupID, "MEMBER")
+	}
+
 	httputil.WriteJSON(w, http.StatusCreated, user)
 }
 
@@ -88,6 +124,7 @@ type UpdateUserRequest struct {
 	Email    string  `json:"email"`
 	Role     string  `json:"role"`
 	Password *string `json:"password,omitempty"`
+	GroupID  *string `json:"group_id,omitempty"`
 }
 
 // Update updates a user
@@ -148,6 +185,16 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err := h.registry.UpdateUser(id, req.Email, req.Role, password); err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to update user: "+err.Error())
 		return
+	}
+
+	if req.GroupID != nil {
+		currentGroups, _ := h.registry.GetUserGroups(id)
+		for _, cg := range currentGroups {
+			_ = h.registry.RemoveUserFromGroup(id, cg.GroupID)
+		}
+		if *req.GroupID != "" {
+			_ = h.registry.AddUserToGroup(id, *req.GroupID, "MEMBER")
+		}
 	}
 
 	if h.authSvc != nil {

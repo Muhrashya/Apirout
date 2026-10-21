@@ -3,8 +3,10 @@ package executor
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/apirout/apirout/internal/core/models"
 	"github.com/apirout/apirout/internal/gateway/pipeline"
 	"github.com/apirout/apirout/internal/gateway/responder"
@@ -37,6 +39,73 @@ func (s *upstreamStage) Execute(c *pipeline.Context) error {
 			SubjectType: "api_client",
 			APIClientID: *c.ConsumerID,
 			GroupID:     c.GroupID,
+		}
+	}
+
+	// Case Instant-API: Direct /api/v1/instant/{connId}/* Unified Database Pipeline
+	if strings.HasPrefix(c.Path, "/api/v1/instant/") && h.instantHandler != nil {
+		parts := strings.Split(strings.Trim(c.Path, "/"), "/")
+		if len(parts) >= 4 {
+			connID := parts[3]
+			c.ServiceName = "Instant Database Service"
+			c.UpstreamURI = fmt.Sprintf("database://%s", connID)
+
+			// 1. Authorize connection access (handles Admin Secret, API Key, JWT token, tenant group check)
+			authStatus, authErr := h.instantHandler.AuthorizeConnectionAccess(r, connID)
+			if authErr != nil {
+				c.SetError(authStatus, authErr.Error())
+				if authStatus == http.StatusForbidden {
+					responder.Error(rec, r, http.StatusForbidden, responder.ErrCodeForbidden, authErr.Error())
+				} else if authStatus == http.StatusNotFound {
+					responder.Error(rec, r, http.StatusNotFound, responder.ErrCodeNotFound, authErr.Error())
+				} else {
+					responder.Error(rec, r, http.StatusUnauthorized, responder.ErrCodeUnauthorized, authErr.Error())
+				}
+				c.MarkHandled()
+				return nil
+			}
+
+			// 2. Check read-only connection enforcement before mutating table CRUD
+			if h.reader != nil {
+				conn, err := h.reader.GetConnectionByID(connID)
+				if err == nil && conn != nil && conn.IsReadOnly {
+					if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete {
+						rec.Header().Set("Allow", "GET, HEAD, OPTIONS")
+						c.SetError(http.StatusMethodNotAllowed, "Connection is configured as read-only: mutating operations are prohibited")
+						responder.Error(rec, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, "Connection is configured as read-only: mutating operations are prohibited", map[string]string{"Allow": "GET, HEAD, OPTIONS"})
+						c.MarkHandled()
+						return nil
+					}
+				}
+			}
+
+			// 3. Dispatch to schema or table CRUD
+			upStart := time.Now()
+			if len(parts) >= 5 && parts[4] == "schema" {
+				vars := map[string]string{"connId": connID}
+				r = mux.SetURLVars(r, vars)
+				h.instantHandler.GetSchema(rec, r)
+			} else if len(parts) >= 5 {
+				tableName := parts[4]
+				id := ""
+				if len(parts) >= 6 {
+					id = parts[5]
+				}
+				h.instantHandler.ExecuteTableCRUD(rec, r, connID, tableName, id)
+			} else {
+				c.SetError(http.StatusBadRequest, "Missing table or schema specification in instant path")
+				responder.Error(rec, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Missing table or schema specification in instant path")
+				c.MarkHandled()
+				return nil
+			}
+
+			c.UpstreamDurationMs = int(time.Since(upStart).Milliseconds())
+			c.StatusCode = rec.StatusCode
+			if c.StatusCode >= 400 {
+				c.Success = false
+			}
+			c.MarkHandled()
+			return nil
 		}
 	}
 
@@ -80,8 +149,16 @@ func (s *upstreamStage) Execute(c *pipeline.Context) error {
 
 			// Case B: Service points directly to a backend host/port
 			if service.Host != "" && service.Protocol != "database" {
+				syntheticTargetID := "direct:" + service.ID
+				if h.circuitBreaker != nil && !h.circuitBreaker.Allow(syntheticTargetID) {
+					c.SetError(http.StatusServiceUnavailable, "service backend temporarily unavailable (circuit breaker open)")
+					responder.Error(rec, r, http.StatusServiceUnavailable, responder.ErrCodeNoHealthyTargets, "service backend temporarily unavailable (circuit breaker open)")
+					c.MarkHandled()
+					return nil
+				}
+
 				c.UpstreamURI = fmt.Sprintf("%s://%s:%d%s", service.Protocol, service.Host, service.Port, service.Path)
-				h.reverseProxyRequest(rec, r, endpoint, service, service.Host, service.Port, "", outboundAuth, &c.UpstreamDurationMs)
+				h.reverseProxyRequest(rec, r, endpoint, service, service.Host, service.Port, syntheticTargetID, outboundAuth, &c.UpstreamDurationMs)
 				c.MarkHandled()
 				return nil
 			}

@@ -351,4 +351,93 @@ func TestListAuditLogsPaginated(t *testing.T) {
 	}
 }
 
+func TestPruneAuditLogs(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test_prune_audit.db")
+
+	reg, err := NewWithSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test registry: %v", err)
+	}
+	defer reg.Close()
+
+	if err := reg.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+	if err := reg.MigrateSchema(); err != nil {
+		t.Fatalf("Failed to migrate schema: %v", err)
+	}
+
+	now := time.Now()
+
+	// Insert 5 stale logs (20 days old, older than 14 days)
+	for i := 1; i <= 5; i++ {
+		err := reg.CreateAuditLog(&AuditLog{
+			ID:        fmt.Sprintf("stale-%d", i),
+			EventType: "api_request",
+			Details:   `{"status":200}`,
+			Timestamp: now.Add(-20 * 24 * time.Hour),
+		})
+		if err != nil {
+			t.Fatalf("Failed to create stale log: %v", err)
+		}
+	}
+
+	// Insert 3 fresh logs (2 days old, within 14 days)
+	for i := 1; i <= 3; i++ {
+		err := reg.CreateAuditLog(&AuditLog{
+			ID:        fmt.Sprintf("fresh-%d", i),
+			EventType: "api_request",
+			Details:   `{"status":200}`,
+			Timestamp: now.Add(-2 * 24 * time.Hour),
+		})
+		if err != nil {
+			t.Fatalf("Failed to create fresh log: %v", err)
+		}
+	}
+
+	// 1. Calling Prune with <= 0 should do nothing
+	pruned, err := reg.PruneAuditLogs(0)
+	if err != nil {
+		t.Fatalf("PruneAuditLogs(0) failed: %v", err)
+	}
+	if pruned != 0 {
+		t.Errorf("Expected 0 pruned rows when retention is 0, got %d", pruned)
+	}
+
+	// Total logs should still be 8
+	allLogs, err := reg.ListAuditLogs("", 100)
+	if err != nil {
+		t.Fatalf("Failed to list logs: %v", err)
+	}
+	if len(allLogs) != 8 {
+		t.Fatalf("Expected 8 total logs before pruning, got %d", len(allLogs))
+	}
+
+	// 2. Prune with 14 days retention: should prune 5 stale logs
+	pruned, err = reg.PruneAuditLogs(14)
+	if err != nil {
+		t.Fatalf("PruneAuditLogs(14) failed: %v", err)
+	}
+	if pruned != 5 {
+		t.Errorf("Expected 5 rows pruned, got %d", pruned)
+	}
+
+	// Verify only 3 fresh logs remain
+	remainingLogs, err := reg.ListAuditLogs("", 100)
+	if err != nil {
+		t.Fatalf("Failed to list remaining logs: %v", err)
+	}
+	if len(remainingLogs) != 3 {
+		t.Errorf("Expected 3 logs remaining after pruning, got %d", len(remainingLogs))
+	}
+
+	for _, l := range remainingLogs {
+		if !l.Timestamp.After(now.Add(-14 * 24 * time.Hour)) {
+			t.Errorf("Expected log %s to be newer than 14 days cutoff, but timestamp was %v", l.ID, l.Timestamp)
+		}
+	}
+}
+
+
 

@@ -394,4 +394,93 @@ func TestInstantCRUD_ReadOnlyConnectionEnforcement(t *testing.T) {
 	})
 }
 
+func TestUnifiedDatabasePipeline_ExecutionAndGuards(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open sqlite memory db: %v", err)
+	}
+	defer db.Close()
+
+	schema := `
+		CREATE TABLE connections (
+			id TEXT PRIMARY KEY,
+			group_id TEXT,
+			name TEXT NOT NULL,
+			db_type TEXT NOT NULL,
+			host TEXT NOT NULL,
+			port INT NOT NULL,
+			db_name TEXT NOT NULL,
+			username TEXT NOT NULL,
+			password_encrypted TEXT NOT NULL,
+			ssl_mode TEXT NOT NULL,
+			is_read_only INT DEFAULT 0,
+			ssh_enabled INT DEFAULT 0,
+			ssh_host TEXT,
+			ssh_port INT DEFAULT 22,
+			ssh_user TEXT,
+			ssh_auth_method TEXT,
+			ssh_password_encrypted TEXT,
+			ssh_private_key_encrypted TEXT,
+			created_at DATETIME,
+			updated_at DATETIME
+		);
+	`
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatalf("failed to create schema: %v", err)
+	}
+
+	_, err = db.Exec(`
+		INSERT INTO connections (id, group_id, name, db_type, host, port, db_name, username, password_encrypted, ssl_mode, is_read_only, created_at, updated_at)
+		VALUES ('conn-ro', 'group-a', 'Read Only DB', 'postgres', 'localhost', 5432, 'db_ro', 'user', '', 'disable', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+		       ('conn-rw', 'group-a', 'Read Write DB', 'postgres', 'localhost', 5432, 'db_rw', 'user', '', 'disable', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`)
+	if err != nil {
+		t.Fatalf("failed to insert connections: %v", err)
+	}
+
+	reader := registry.NewReaderWithDB(db, "sqlite")
+	instantHandler := NewInstantCRUDHandler(reader, "test-enc-key-32-chars-long!", nil, nil, "admin-master-secret", "")
+	h := NewHandler(nil, reader, nil, nil, nil, instantHandler)
+
+	// 1. CORS Preflight OPTIONS request to /api/v1/instant/conn-ro/users
+	t.Run("Instant_Preflight_204", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("OPTIONS", "/api/v1/instant/conn-ro/users", nil)
+		req.Header.Set("Origin", "http://localhost:3000")
+		h.Execute(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("expected 204 No Content for instant preflight, got %d", rec.Code)
+		}
+		if rec.Header().Get("Access-Control-Allow-Methods") == "" {
+			t.Errorf("expected Access-Control-Allow-Methods header to be set")
+		}
+	})
+
+	// 2. Read-only connection write mutation via pipeline returns 405 Method Not Allowed
+	t.Run("Instant_ReadOnly_Write_405", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/api/v1/instant/conn-ro/users", strings.NewReader(`{"name":"alice"}`))
+		req.Header.Set("X-Admin-Secret", "admin-master-secret")
+		req.Header.Set("Content-Type", "application/json")
+		h.Execute(rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected 405 Method Not Allowed on read-only connection via pipeline, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	// 3. Unauthorized access to grouped connection returns 401
+	t.Run("Instant_Unauthorized_401", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/v1/instant/conn-ro/users", nil)
+		h.Execute(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 Unauthorized without auth headers, got %d", rec.Code)
+		}
+	})
+}
+
+
 

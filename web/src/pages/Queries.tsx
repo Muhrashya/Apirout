@@ -373,10 +373,25 @@ export default function QueriesPage() {
                                 )}
                                 {connections.map(c => (
                                     <option key={c.id} value={c.id}>
-                                        {c.name} ({c.db_type})
+                                        {c.name} ({c.db_type}){c.is_read_only ? ' [Read-Only]' : ''}
                                     </option>
                                 ))}
                             </select>
+                            {connections.find(c => c.id === activeConnectionId)?.is_read_only && (
+                                <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    padding: '2px 8px',
+                                    borderRadius: '6px',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    backgroundColor: '#fef3c7',
+                                    color: '#b45309',
+                                    border: '1px solid #fde68a'
+                                }} title="This database is read-only. Mutating statements are prohibited.">
+                                    Read-Only
+                                </span>
+                            )}
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

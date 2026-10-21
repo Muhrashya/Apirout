@@ -25,7 +25,9 @@ type AuditLog struct {
 // CreateAuditLog creates a new audit log entry
 func (r *Registry) CreateAuditLog(log *AuditLog) error {
 	log.ID = generateID()
-	log.Timestamp = time.Now()
+	if log.Timestamp.IsZero() {
+		log.Timestamp = time.Now()
+	}
 
 	if log.Details == "" {
 		log.Details = "{}"
@@ -674,4 +676,19 @@ func (r *Registry) GetTrafficTrend(since time.Time) ([]TrafficTrend, error) {
 	})
 
 	return results, nil
+}
+
+// PruneAuditLogs deletes audit logs older than retentionDays.
+// Returns the number of pruned rows, or 0 if retentionDays <= 0.
+func (r *Registry) PruneAuditLogs(retentionDays int) (int64, error) {
+	if retentionDays <= 0 {
+		return 0, nil
+	}
+	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+	query := r.db.Rebind("DELETE FROM audit_logs WHERE timestamp < ?")
+	res, err := r.db.Exec(query, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

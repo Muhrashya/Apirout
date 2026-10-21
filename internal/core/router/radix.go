@@ -195,8 +195,21 @@ func (r *RadixRouter) Match(path, method string) (*MatchResult, error) {
 	}
 	sort.Strings(allowedList)
 
+	var matchedEp *models.Endpoint
+	for _, e := range targetNode.endpoints {
+		if e != nil {
+			matchedEp = e
+			break
+		}
+	}
+	if matchedEp == nil {
+		matchedEp = targetNode.prefixEndpoint
+	}
+
 	return &MatchResult{
+		Endpoint:       matchedEp,
 		AllowedMethods: allowedList,
+		Params:         foundParams,
 	}, ErrMethodNotAllowed
 }
 

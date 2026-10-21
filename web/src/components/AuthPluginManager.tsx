@@ -42,7 +42,7 @@ const AVAILABLE_PLUGINS = [
     {
         name: 'jwt-auth',
         label: 'JWT Token (jwt-auth)',
-        description: 'Verify requests signed with JSON Web Tokens (HMAC, RSA, or ECDSA).',
+        description: 'Verify requests signed with JSON Web Tokens using symmetric HS256 secret keys.',
         defaultConfig: {
             algorithms: ['HS256'],
             key_claim_name: 'iss',
@@ -815,14 +815,17 @@ export const AuthPluginManager: React.FC<AuthPluginManagerProps> = ({
                             <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                                     <div className="form-group">
-                                        <label className="label">Allowed Algorithms</label>
-                                        <input
-                                            type="text"
-                                            className="input"
+                                        <label className="label">Signing Algorithm</label>
+                                        <select
+                                            className="select"
                                             value={jwtAlgorithms}
                                             onChange={e => setJwtAlgorithms(e.target.value)}
-                                            placeholder="HS256, RS256"
-                                        />
+                                        >
+                                            <option value="HS256">HS256 (HMAC-SHA256 Symmetric Key)</option>
+                                        </select>
+                                        <span style={{ fontSize: '11px', color: '#64748b', marginTop: '3px', display: 'block' }}>
+                                            Validated against platform or consumer symmetric secret.
+                                        </span>
                                     </div>
                                     <div className="form-group">
                                         <label className="label">Key Claim Name (Consumer Match)</label>

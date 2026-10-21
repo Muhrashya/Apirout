@@ -127,6 +127,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	guiHandler := wrapMiddleware(guiRouter)
 
 	stopHealthChecker := server.StartBackgroundHealthChecker(reg, pub, logger)
+	stopRetentionPruner := monitoringService.StartRetentionPruner(cfg.AuditLogRetentionDays, 1*time.Hour)
 
 	return &App{
 		cfg:          cfg,
@@ -138,6 +139,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		closers: []func(){
 			loginLimiter.Stop,
 			stopHealthChecker,
+			stopRetentionPruner,
 		},
 	}, nil
 }

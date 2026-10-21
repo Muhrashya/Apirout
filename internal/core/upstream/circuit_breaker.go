@@ -156,3 +156,39 @@ func (cb *PassiveCircuitBreaker) FilterAvailable(targets []models.Target) (avail
 
 	return available, false
 }
+
+// Allow evaluates whether a target or direct service is available to receive traffic
+func (cb *PassiveCircuitBreaker) Allow(targetID string) bool {
+	if cb == nil || targetID == "" {
+		return true
+	}
+
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	s, exists := cb.stats[targetID]
+	if !exists {
+		return true
+	}
+
+	now := time.Now()
+	switch s.state {
+	case StateHealthy:
+		return true
+	case StateTripped:
+		if now.Sub(s.trippedAt) >= cb.cooldown {
+			s.state = StateHalfOpen
+			s.canaryInFlight = true
+			return true
+		}
+		return false
+	case StateHalfOpen:
+		if !s.canaryInFlight {
+			s.canaryInFlight = true
+			return true
+		}
+		return false
+	}
+	return true
+}
+

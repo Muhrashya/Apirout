@@ -2,6 +2,7 @@ package registry
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -30,6 +31,22 @@ type Connection struct {
 	CreatedAt              time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt              time.Time `db:"updated_at" json:"updated_at"`
 }
+
+// MarshalJSON ensures both snake_case (db_name, ssl_mode) and standard (dbname, sslmode)
+// are serialized to prevent field mismatches between frontend API clients and backend models.
+func (c Connection) MarshalJSON() ([]byte, error) {
+	type Alias Connection
+	return json.Marshal(&struct {
+		Alias
+		DBNameAlias  string `json:"db_name"`
+		SSLModeAlias string `json:"ssl_mode"`
+	}{
+		Alias:        Alias(c),
+		DBNameAlias:  c.DBName,
+		SSLModeAlias: c.SSLMode,
+	})
+}
+
 
 // ConnectionHealth represents connection health status
 type ConnectionHealth struct {
@@ -216,10 +233,12 @@ func (r *Registry) ListConnectionsWithHealth() ([]map[string]interface{}, error)
 			return nil, err
 		}
 
-		// Fix db_name -> dbname
+		// Fix db_name -> dbname, ssl_mode -> sslmode (keep both for compatibility)
 		if val, ok := result["db_name"]; ok {
 			result["dbname"] = val
-			// delete(result, "db_name") // Optional: keep both
+		}
+		if val, ok := result["ssl_mode"]; ok {
+			result["sslmode"] = val
 		}
 
 		// Fix boolean fields (SQLite returns int64)
