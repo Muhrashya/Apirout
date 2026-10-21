@@ -101,7 +101,8 @@ func (c *TrinoConnector) Execute(ctx context.Context, connString, query string, 
 	db.SetConnMaxLifetime(10 * time.Second)
 	db.SetMaxOpenConns(1)
 
-	rows, err := db.NamedQueryContext(ctx, query, params)
+	cleanQuery := strings.TrimRight(strings.TrimSpace(query), ";")
+	rows, err := db.NamedQueryContext(ctx, cleanQuery, params)
 	if err != nil {
 		return nil, fmt.Errorf("query execution failed: %w", err)
 	}

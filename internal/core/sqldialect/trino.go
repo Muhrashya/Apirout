@@ -147,16 +147,20 @@ func (g *TrinoGenerator) BuildDelete(spec DeleteSpec) (string, []any, error) {
 
 func (g *TrinoGenerator) WrapPagination(rawSQL string, limit, offset int) (string, error) {
 	cleanSQL := strings.TrimRight(strings.TrimSpace(rawSQL), ";")
-	if limit > 0 && offset > 0 {
-		return fmt.Sprintf("%s LIMIT %d OFFSET %d", cleanSQL, limit, offset), nil
+	if limit <= 0 && offset <= 0 {
+		return cleanSQL, nil
 	}
+	var sb strings.Builder
+	sb.WriteString("SELECT * FROM (")
+	sb.WriteString(cleanSQL)
+	sb.WriteString(") AS _paginated_sub")
 	if limit > 0 {
-		return fmt.Sprintf("%s LIMIT %d", cleanSQL, limit), nil
+		sb.WriteString(fmt.Sprintf(" LIMIT %d", limit))
 	}
 	if offset > 0 {
-		return fmt.Sprintf("%s OFFSET %d", cleanSQL, offset), nil
+		sb.WriteString(fmt.Sprintf(" OFFSET %d", offset))
 	}
-	return cleanSQL, nil
+	return sb.String(), nil
 }
 
 func (g *TrinoGenerator) buildFilters(filters []FilterCondition) ([]string, []any) {

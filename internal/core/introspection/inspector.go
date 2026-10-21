@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -337,6 +338,24 @@ func introspectMSSQL(ctx context.Context, connString string) (*SchemaInfo, error
 	}, nil
 }
 
+// buildTrinoIntrospectQueries generates ANSI/Presto compliant schema queries without trailing semicolons
+func buildTrinoIntrospectQueries(connString string) (tableQuery, colQuery string) {
+	u, _ := url.Parse(connString)
+	targetSchema := ""
+	if u != nil {
+		targetSchema = u.Query().Get("schema")
+	}
+
+	whereClause := "WHERE table_schema NOT IN ('information_schema', 'sys')"
+	if targetSchema != "" && targetSchema != "default" {
+		whereClause = fmt.Sprintf("WHERE table_schema = '%s'", strings.ReplaceAll(targetSchema, "'", "''"))
+	}
+
+	tableQuery = fmt.Sprintf(`SELECT table_name, table_type FROM information_schema.tables %s ORDER BY table_name`, whereClause)
+	colQuery = fmt.Sprintf(`SELECT table_name, column_name, data_type, is_nullable, column_default FROM information_schema.columns %s ORDER BY table_name, ordinal_position`, whereClause)
+	return tableQuery, colQuery
+}
+
 func introspectTrino(ctx context.Context, connString string) (*SchemaInfo, error) {
 	db, err := sql.Open("trino", connString)
 	if err != nil {
@@ -347,13 +366,9 @@ func introspectTrino(ctx context.Context, connString string) (*SchemaInfo, error
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	// 1. Fetch tables from non-system schema
-	tableQuery := `
-		SELECT table_name, table_type
-		FROM information_schema.tables
-		WHERE table_schema != 'information_schema'
-		ORDER BY table_name;
-	`
+	tableQuery, colQuery := buildTrinoIntrospectQueries(connString)
+
+	// 1. Fetch tables from schema
 	rows, err := db.QueryContext(ctx, tableQuery)
 	if err != nil {
 		return nil, fmt.Errorf("query trino tables: %w", err)
@@ -373,12 +388,6 @@ func introspectTrino(ctx context.Context, connString string) (*SchemaInfo, error
 	}
 
 	// 2. Fetch columns for tables
-	colQuery := `
-		SELECT table_name, column_name, data_type, is_nullable, column_default
-		FROM information_schema.columns
-		WHERE table_schema != 'information_schema'
-		ORDER BY table_name, ordinal_position;
-	`
 	colRows, err := db.QueryContext(ctx, colQuery)
 	if err != nil {
 		return nil, fmt.Errorf("query trino columns: %w", err)

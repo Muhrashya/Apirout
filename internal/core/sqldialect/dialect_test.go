@@ -353,4 +353,17 @@ func TestTrinoDialectGenerator(t *testing.T) {
 	if !strings.Contains(paginated, "LIMIT 50 OFFSET 100") {
 		t.Errorf("expected LIMIT 50 OFFSET 100, got: %s", paginated)
 	}
+
+	// 5b. WrapPagination with existing LIMIT and trailing semicolon
+	pagedWithLimit, err := gen.WrapPagination("SELECT * FROM users LIMIT 10;", 25, 0)
+	if err != nil {
+		t.Fatalf("WrapPagination with existing limit failed: %v", err)
+	}
+	if strings.Contains(pagedWithLimit, "LIMIT 10 LIMIT 25") {
+		t.Errorf("expected subquery wrapping for existing limit, but got duplicate LIMIT keywords: %s", pagedWithLimit)
+	}
+	if !strings.Contains(pagedWithLimit, "SELECT * FROM (") || !strings.Contains(pagedWithLimit, ") AS _paginated_sub") {
+		t.Errorf("expected subquery wrapped pagination, got: %s", pagedWithLimit)
+	}
 }
+

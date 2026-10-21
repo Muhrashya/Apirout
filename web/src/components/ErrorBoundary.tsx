@@ -22,6 +22,15 @@ export class ErrorBoundary extends Component<Props, State> {
 
     public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
         console.error('Uncaught error in component tree:', error, errorInfo);
+        const errMsg = error?.message || '';
+        if (errMsg.includes('dynamically imported module') || errMsg.includes('Failed to fetch') || errMsg.includes('Loading chunk')) {
+            const lastReload = sessionStorage.getItem('last_chunk_reload');
+            const now = Date.now();
+            if (!lastReload || now - parseInt(lastReload, 10) > 10000) {
+                sessionStorage.setItem('last_chunk_reload', String(now));
+                window.location.reload();
+            }
+        }
     }
 
     public render() {
