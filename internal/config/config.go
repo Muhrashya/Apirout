@@ -73,6 +73,13 @@ type Config struct {
 	RedisPort     string
 	RedisPassword string
 
+	// Headless Auto-Bootstrap (optional environment provisioning)
+	BootstrapAdminEmail    string
+	BootstrapAdminPassword string
+
+	// Distributed Rate Limiting
+	DistributedRateLimit bool
+
 	CORSAllowedOrigins []string
 }
 
@@ -151,6 +158,10 @@ func Load() (*Config, error) {
 		RedisPort:     getEnvAny("REDIS_PORT", "APIROUT_REDIS_PORT", "6379"),
 		RedisPassword: getEnvAny("REDIS_PASSWORD", "APIROUT_REDIS_PASSWORD", ""),
 
+		BootstrapAdminEmail:    getEnvAny("BOOTSTRAP_ADMIN_EMAIL", "APIROUT_BOOTSTRAP_ADMIN_EMAIL", ""),
+		BootstrapAdminPassword: getEnvAny("BOOTSTRAP_ADMIN_PASSWORD", "APIROUT_BOOTSTRAP_ADMIN_PASSWORD", ""),
+		DistributedRateLimit:   getEnvBool("DISTRIBUTED_RATE_LIMIT", false),
+
 		CORSAllowedOrigins: splitList(getEnvAny("CORS_ALLOWED_ORIGINS", "*")),
 	}
 
@@ -175,7 +186,27 @@ func Load() (*Config, error) {
 		cfg.GatewayJWTSecret = cfg.JWTSecret
 	}
 
+	if cfg.BootstrapAdminEmail != "" && cfg.BootstrapAdminPassword == "" {
+		return nil, fmt.Errorf("BOOTSTRAP_ADMIN_PASSWORD is required when BOOTSTRAP_ADMIN_EMAIL is set")
+	}
+	if cfg.BootstrapAdminPassword != "" && cfg.BootstrapAdminEmail == "" {
+		return nil, fmt.Errorf("BOOTSTRAP_ADMIN_EMAIL is required when BOOTSTRAP_ADMIN_PASSWORD is set")
+	}
+	if cfg.BootstrapAdminEmail != "" {
+		if !strings.Contains(cfg.BootstrapAdminEmail, "@") {
+			return nil, fmt.Errorf("BOOTSTRAP_ADMIN_EMAIL has invalid email format")
+		}
+		if len(cfg.BootstrapAdminPassword) < 8 {
+			return nil, fmt.Errorf("BOOTSTRAP_ADMIN_PASSWORD must be at least 8 characters")
+		}
+	}
+
 	if cfg.AppEnv == "production" {
+		if cfg.BootstrapAdminEmail != "" {
+			if cfg.BootstrapAdminPassword == "Password123!" || cfg.BootstrapAdminPassword == "admin" || cfg.BootstrapAdminPassword == "password" {
+				return nil, fmt.Errorf("BOOTSTRAP_ADMIN_PASSWORD must not use default placeholder in production")
+			}
+		}
 		if len(cfg.ConsoleJWTSecret) < 32 || cfg.ConsoleJWTSecret == "default-jwt-secret-key-min-32-characters!" || cfg.ConsoleJWTSecret == "apirout-default-jwt-secret-key-32chars!" || cfg.ConsoleJWTSecret == "super-secret-jwt-key-min-32-characters!" {
 			return nil, fmt.Errorf("CONSOLE_JWT_SECRET (or JWT_SECRET) must be at least 32 characters and must not use default placeholder in production")
 		}

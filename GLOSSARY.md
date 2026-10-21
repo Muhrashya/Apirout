@@ -137,3 +137,34 @@ The access control invariant stating that database connections without an explic
 ### Declarative Stream Shield
 A defense-in-depth resource bounding control applied to GitOps declarative configuration imports that limits incoming request body streams and constrains YAML alias expansion to prevent algorithmic complexity attacks and memory exhaustion.
 
+### Hybrid Distributed Rate Limiter
+A dual-tier rate limiting architecture combining localized in-memory token buckets for zero-latency single-node deployments with an opt-in distributed Redis token bucket (`DISTRIBUTED_RATE_LIMIT=true`) for multi-pod gateway clusters, featuring automatic fault-tolerant fallback to memory if Redis is partitioned or times out.
+
+### Headless Bootstrapping
+A non-interactive provisioning mechanism driven by environment variables (`BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD`) that creates the root Super Admin account on first startup in headless cloud (Kubernetes, Docker) environments without manual UI wizard interaction, while locking down setup mode immediately.
+
+### Asymmetric Resilience Topology
+An architectural division of labor where the Control Plane asynchronously conducts active health checks against upstream targets to eliminate thundering herds, while Data Plane nodes run stateless edge passive circuit breakers (3 consecutive 5xx trips for 15s) for instant edge failover.
+
+### On-Demand Schema Invalidation
+An EventBus-driven cache invalidation protocol triggered during explicit connection introspection or credential updates, causing Data Plane workers to purge cached connection pools and dynamically refresh relational schemas without gateway restarts.
+
+### Federated Lakehouse Target
+An analytical query engine endpoint (such as Trino) that federates distributed queries across object storage lakehouses (Iceberg, Delta Lake, Hive) and multiple relational catalogs, characterized by HTTP-based wire transport and read-heavy OLAP query patterns.
+
+### Trino Catalog Mapping
+The convention used by the platform to map a two-tier database namespace (`catalog.schema`) into standard connection parameters by representing the catalog (and optional schema) in the `DBName` field (`<catalog>[/<schema>]`), defaulting schema resolution to standard ANSI fallbacks.
+
+### Target Reconciliation
+A declarative synchronization process executed in the management console during upstream pool modification that diffs staged server instances against persisted registry targets, dispatching concurrent creations, attribute updates (weight/port), and deletions to ensure cluster topology matches operator intent.
+
+### Read-Only Target Guard
+An enforcement boundary in the Gateway execution plane that checks connection profile permissions and halts mutating HTTP methods (`POST`, `PUT`, `PATCH`, `DELETE`) with `HTTP 405 Method Not Allowed`, protecting read replicas and analytical engines from unintended data modification.
+
+### Dual-Tier Rate Keying
+A defensive key-derivation strategy in the authentication pipeline stage that isolates consumer rate buckets (`route:<id>:client:<id>`) for authenticated callers while falling back to client IP isolation (`route:<id>:ip:<ip>`) for anonymous or unauthenticated traffic, preventing noisy neighbor starvation.
+
+### Secure-by-Default Instant API
+A security baseline for auto-generated database REST routes requiring explicit API key authorization (`is_public = false`) and 60 RPM rate limits by default, while quoting table names with dialect-specific identifiers to prevent keyword collision and unauthenticated exposure.
+
+

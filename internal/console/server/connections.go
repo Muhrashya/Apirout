@@ -13,6 +13,7 @@ import (
 	"github.com/apirout/apirout/internal/core/egress"
 	"github.com/apirout/apirout/internal/core/httputil"
 	"github.com/apirout/apirout/internal/core/introspection"
+	"github.com/apirout/apirout/internal/core/sqldialect"
 	"github.com/apirout/apirout/internal/core/targets"
 
 	"github.com/gorilla/mux"
@@ -102,6 +103,7 @@ type CreateConnectionRequest struct {
 	Username      string  `json:"username"`
 	Password      string  `json:"password"`
 	SSLMode       string  `json:"sslmode"`
+	IsReadOnly    bool    `json:"is_read_only"`
 	SSHEnabled    bool    `json:"ssh_enabled"`
 	SSHHost       *string `json:"ssh_host"`
 	SSHPort       int     `json:"ssh_port"`
@@ -188,6 +190,8 @@ func (h *ConnectionHandler) Create(w http.ResponseWriter, r *http.Request) {
 			req.Port = 27017
 		case "redis":
 			req.Port = 6379
+		case "trino":
+			req.Port = 8080
 		}
 	}
 
@@ -226,6 +230,7 @@ func (h *ConnectionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Username:               req.Username,
 		PasswordEncrypted:      encryptedPassword,
 		SSLMode:                req.SSLMode,
+		IsReadOnly:             req.IsReadOnly,
 		SSHEnabled:             req.SSHEnabled,
 		SSHHost:                req.SSHHost,
 		SSHPort:                req.SSHPort,
@@ -305,6 +310,7 @@ func (h *ConnectionHandler) Update(w http.ResponseWriter, r *http.Request) {
 		existing.SSLMode = req.SSLMode
 	}
 	existing.GroupID = req.GroupID
+	existing.IsReadOnly = req.IsReadOnly
 	existing.SSHEnabled = req.SSHEnabled
 	existing.SSHHost = req.SSHHost
 	existing.SSHPort = req.SSHPort
@@ -417,6 +423,8 @@ func (h *ConnectionHandler) TestRaw(w http.ResponseWriter, r *http.Request) {
 			req.Port = 27017
 		case "redis":
 			req.Port = 6379
+		case "trino":
+			req.Port = 8080
 		}
 	}
 
@@ -587,19 +595,8 @@ func (h *ConnectionHandler) Introspect(w http.ResponseWriter, r *http.Request) {
 		password = ""
 	}
 
-	var connStr string
-	switch conn.DBType {
-	case "postgres", "postgresql":
-		ssl := conn.SSLMode
-		if ssl == "" {
-			ssl = "disable"
-		}
-		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&connect_timeout=5",
-			conn.Username, password, conn.Host, conn.Port, conn.DBName, ssl)
-	case "mysql":
-		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?timeout=5s&parseTime=true",
-			conn.Username, password, conn.Host, conn.Port, conn.DBName)
-	default:
+	connStr, err := targets.BuildConnectionString(conn.DBType, conn.Host, conn.Port, conn.DBName, conn.Username, password, conn.SSLMode)
+	if err != nil {
 		httputil.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("Introspection not supported for db type: %s", conn.DBType))
 		return
 	}
@@ -608,6 +605,10 @@ func (h *ConnectionHandler) Introspect(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httputil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Introspection failed: %v", err))
 		return
+	}
+
+	if pub := h.registry.GetPublisher(); pub != nil {
+		_ = pub.PublishConnectionChanged("UPDATE", id)
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, schema)
@@ -624,21 +625,28 @@ func (h *ConnectionHandler) GenerateEndpoints(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	password, _ := decryptString(conn.PasswordEncrypted, h.encryptionKey)
-	var connStr string
-	switch conn.DBType {
-	case "postgres", "postgresql":
-		ssl := conn.SSLMode
-		if ssl == "" {
-			ssl = "disable"
-		}
-		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&connect_timeout=5",
-			conn.Username, password, conn.Host, conn.Port, conn.DBName, ssl)
-	case "mysql":
-		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?timeout=5s&parseTime=true",
-			conn.Username, password, conn.Host, conn.Port, conn.DBName)
-	default:
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Unsupported db type")
+	// Parse optional is_public flag from request body (defaults to false for secure-by-default)
+	type GenerateRequest struct {
+		IsPublic *bool `json:"is_public"`
+	}
+	var genReq GenerateRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&genReq)
+	}
+
+	isPublic := false // Secure-by-default: protected with API key
+	if genReq.IsPublic != nil {
+		isPublic = *genReq.IsPublic
+	}
+
+	password, err := decryptString(conn.PasswordEncrypted, h.encryptionKey)
+	if err != nil {
+		password = ""
+	}
+
+	connStr, err := targets.BuildConnectionString(conn.DBType, conn.Host, conn.Port, conn.DBName, conn.Username, password, conn.SSLMode)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("Unsupported db type: %s", conn.DBType))
 		return
 	}
 
@@ -648,11 +656,20 @@ func (h *ConnectionHandler) GenerateEndpoints(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	gen, _ := sqldialect.GetGenerator(conn.DBType)
+
 	createdCount := 0
 	for _, table := range schema.Tables {
+		quotedTable := table.Name
+		if gen != nil {
+			quotedTable = gen.QuoteIdentifier(table.Name)
+		} else {
+			quotedTable = fmt.Sprintf(`"%s"`, table.Name)
+		}
+
 		queryName := fmt.Sprintf("List %s (%s)", table.Name, conn.Name)
-		sqlText := fmt.Sprintf("SELECT * FROM %s", table.Name)
-		countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s", table.Name)
+		sqlText := fmt.Sprintf("SELECT * FROM %s", quotedTable)
+		countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s", quotedTable)
 		desc := fmt.Sprintf("Auto-generated instant query for %s", table.Name)
 
 		q := &registry.Query{
@@ -681,8 +698,8 @@ func (h *ConnectionHandler) GenerateEndpoints(w http.ResponseWriter, r *http.Req
 			Path:                path,
 			QueryID:             &q.ID,
 			Enabled:             true,
-			IsPublic:            true,
-			RateLimitEnabled:    false,
+			IsPublic:            isPublic,
+			RateLimitEnabled:    true,
 			RateLimitRPM:        60,
 			RateLimitBurst:      10,
 			DefaultLimit:        20,

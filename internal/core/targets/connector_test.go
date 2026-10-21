@@ -47,4 +47,31 @@ func TestBuildConnectionString_EscapesSpecialCharacters(t *testing.T) {
 	if !strings.Contains(redisConn, "user%40corp%3Adomain") || !strings.Contains(redisConn, "P%40ssw0rd%21%23%25%26") {
 		t.Errorf("expected URL-encoded credentials in redis connection string, got: %s", redisConn)
 	}
+
+	// Trino
+	trinoConn, err := BuildConnectionString("trino", "trino-host", 8080, "iceberg/analytics", specialUser, specialPass, "disable")
+	if err != nil {
+		t.Fatalf("trino BuildConnectionString failed: %v", err)
+	}
+	if !strings.Contains(trinoConn, "user%40corp%3Adomain") || !strings.Contains(trinoConn, "P%40ssw0rd%21%23%25%26") {
+		t.Errorf("expected URL-encoded credentials in trino connection string, got: %s", trinoConn)
+	}
+	if !strings.Contains(trinoConn, "catalog=iceberg") || !strings.Contains(trinoConn, "schema=analytics") {
+		t.Errorf("expected catalog=iceberg and schema=analytics in trino connection string, got: %s", trinoConn)
+	}
+	if !strings.HasPrefix(trinoConn, "http://") {
+		t.Errorf("expected http:// prefix for disable sslmode, got: %s", trinoConn)
+	}
+
+	// Trino HTTPS & defaults
+	trinoHttpsConn, err := BuildConnectionString("trino", "trino-host", 0, "tpch", "trino", "", "require")
+	if err != nil {
+		t.Fatalf("trino HTTPS BuildConnectionString failed: %v", err)
+	}
+	if !strings.HasPrefix(trinoHttpsConn, "https://") || !strings.Contains(trinoHttpsConn, ":8443") {
+		t.Errorf("expected https:// and port 8443 for Trino SSL, got: %s", trinoHttpsConn)
+	}
+	if !strings.Contains(trinoHttpsConn, "catalog=tpch") || !strings.Contains(trinoHttpsConn, "schema=default") {
+		t.Errorf("expected catalog=tpch and schema=default, got: %s", trinoHttpsConn)
+	}
 }

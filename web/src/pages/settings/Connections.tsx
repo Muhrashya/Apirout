@@ -109,6 +109,9 @@ export default function ConnectionsPage() {
         if (t === 'redis') {
             return { label: 'Redis', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' };
         }
+        if (t === 'trino') {
+            return { label: 'Trino', bg: '#ecfeff', color: '#0891b2', border: '#a5f3fc' };
+        }
         return { label: dbType, bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' };
     };
 
@@ -200,6 +203,7 @@ export default function ConnectionsPage() {
                             <option value="mysql">MySQL</option>
                             <option value="mongodb">MongoDB</option>
                             <option value="mssql">SQL Server</option>
+                            <option value="trino">Trino</option>
                         </select>
                     </div>
                 </div>

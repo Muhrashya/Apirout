@@ -14,6 +14,7 @@ type Connection struct {
 	Username               string    `db:"username" json:"username"`
 	PasswordEncrypted      string    `db:"password_encrypted" json:"-"`
 	SSLMode                string    `db:"ssl_mode" json:"sslmode"`
+	IsReadOnly             bool      `db:"is_read_only" json:"is_read_only"`
 	SSHEnabled             bool      `db:"ssh_enabled" json:"ssh_enabled"`
 	SSHHost                *string   `db:"ssh_host" json:"ssh_host"`
 	SSHPort                int       `db:"ssh_port" json:"ssh_port"`

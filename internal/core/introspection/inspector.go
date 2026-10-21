@@ -10,6 +10,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	_ "github.com/microsoft/go-mssqldb"
+	_ "github.com/trinodb/trino-go-client/trino"
 )
 
 // ColumnInfo holds metadata for a single database column
@@ -45,6 +46,8 @@ func Introspect(ctx context.Context, dbType, connString string) (*SchemaInfo, er
 		return introspectMySQL(ctx, connString)
 	case "mssql", "sqlserver":
 		return introspectMSSQL(ctx, connString)
+	case "trino":
+		return introspectTrino(ctx, connString)
 	default:
 		return nil, fmt.Errorf("unsupported database type for introspection: %s", dbType)
 	}
@@ -326,6 +329,97 @@ func introspectMSSQL(ctx context.Context, connString string) (*SchemaInfo, error
 			}
 		}
 		tables[i].Columns = colsByTable[tables[i].Name]
+	}
+
+	return &SchemaInfo{
+		Tables:    tables,
+		Timestamp: time.Now().Unix(),
+	}, nil
+}
+
+func introspectTrino(ctx context.Context, connString string) (*SchemaInfo, error) {
+	db, err := sql.Open("trino", connString)
+	if err != nil {
+		return nil, fmt.Errorf("open trino connection: %w", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	// 1. Fetch tables from non-system schema
+	tableQuery := `
+		SELECT table_name, table_type
+		FROM information_schema.tables
+		WHERE table_schema != 'information_schema'
+		ORDER BY table_name;
+	`
+	rows, err := db.QueryContext(ctx, tableQuery)
+	if err != nil {
+		return nil, fmt.Errorf("query trino tables: %w", err)
+	}
+	defer rows.Close()
+
+	var tables []TableInfo
+	for rows.Next() {
+		var t TableInfo
+		if err := rows.Scan(&t.Name, &t.Type); err != nil {
+			return nil, err
+		}
+		tables = append(tables, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 2. Fetch columns for tables
+	colQuery := `
+		SELECT table_name, column_name, data_type, is_nullable, column_default
+		FROM information_schema.columns
+		WHERE table_schema != 'information_schema'
+		ORDER BY table_name, ordinal_position;
+	`
+	colRows, err := db.QueryContext(ctx, colQuery)
+	if err != nil {
+		return nil, fmt.Errorf("query trino columns: %w", err)
+	}
+	defer colRows.Close()
+
+	colsByTable := make(map[string][]ColumnInfo)
+	for colRows.Next() {
+		var tbl, col, dt, nullable string
+		var defVal sql.NullString
+		if err := colRows.Scan(&tbl, &col, &dt, &nullable, &defVal); err != nil {
+			return nil, err
+		}
+		colsByTable[tbl] = append(colsByTable[tbl], ColumnInfo{
+			Name:         col,
+			DataType:     dt,
+			IsNullable:   strings.EqualFold(nullable, "YES"),
+			DefaultValue: defVal.String,
+			IsPrimaryKey: false,
+		})
+	}
+
+	for i := range tables {
+		tblName := tables[i].Name
+		cols := colsByTable[tblName]
+		if len(cols) > 0 {
+			// Find primary key: prefer column named "id", otherwise fall back to first column (Q3 A)
+			pkIndex := -1
+			for j, col := range cols {
+				if strings.EqualFold(col.Name, "id") {
+					pkIndex = j
+					break
+				}
+			}
+			if pkIndex == -1 {
+				pkIndex = 0
+			}
+			tables[i].PrimaryKey = cols[pkIndex].Name
+			cols[pkIndex].IsPrimaryKey = true
+		}
+		tables[i].Columns = cols
 	}
 
 	return &SchemaInfo{

@@ -26,7 +26,7 @@ export default function UpstreamFormPage() {
         unhealthy_threshold: 3
     });
 
-    const [targets, setTargets] = useState<{ host: string; port: number; weight: number; enabled: boolean }[]>([]);
+    const [targets, setTargets] = useState<{ id?: string; host: string; port: number; weight: number; enabled: boolean }[]>([]);
     const [newTargetHost, setNewTargetHost] = useState('');
     const [newTargetPort, setNewTargetPort] = useState(8080);
     const [newTargetWeight, setNewTargetWeight] = useState(100);
@@ -62,6 +62,7 @@ export default function UpstreamFormPage() {
 
             if (targetsRes.data) {
                 setTargets(targetsRes.data.map((t: Target) => ({
+                    id: t.id,
                     host: t.host,
                     port: t.port,
                     weight: t.weight,
@@ -132,17 +133,75 @@ export default function UpstreamFormPage() {
                 toast.success('Upstream pool created');
             }
 
-            // Sync targets if newly created
-            if (!isEdit && upstreamId && targets.length > 0) {
-                for (const t of targets) {
-                    await gatewayApi.createTarget(upstreamId, {
-                        target: `${t.host}:${t.port}`,
-                        host: t.host,
-                        port: t.port,
-                        weight: t.weight,
-                        enabled: t.enabled
-                    }).catch(() => null);
+            // Declarative Target Reconciliation
+            if (isEdit && upstreamId) {
+                const currentTargetsRes = await gatewayApi.getTargets(upstreamId).catch(() => ({ data: [] }));
+                const existingTargets: Target[] = Array.isArray((currentTargetsRes as any)?.data)
+                    ? (currentTargetsRes as any).data
+                    : (Array.isArray(currentTargetsRes) ? (currentTargetsRes as any) : []);
+
+                const existingById = new Map<string, Target>();
+                for (const et of existingTargets) {
+                    existingById.set(et.id, et);
                 }
+
+                const currentFormIds = new Set<string>();
+                const promises: Promise<any>[] = [];
+
+                for (const t of targets) {
+                    if (t.id && existingById.has(t.id)) {
+                        currentFormIds.add(t.id);
+                        const existing = existingById.get(t.id)!;
+                        if (
+                            existing.host !== t.host ||
+                            existing.port !== t.port ||
+                            existing.weight !== t.weight ||
+                            existing.enabled !== t.enabled
+                        ) {
+                            promises.push(
+                                gatewayApi.updateTarget(t.id, {
+                                    target: `${t.host}:${t.port}`,
+                                    host: t.host,
+                                    port: t.port,
+                                    weight: t.weight,
+                                    enabled: t.enabled
+                                }).catch(() => null)
+                            );
+                        }
+                    } else {
+                        // New target added during edit
+                        promises.push(
+                            gatewayApi.createTarget(upstreamId, {
+                                target: `${t.host}:${t.port}`,
+                                host: t.host,
+                                port: t.port,
+                                weight: t.weight,
+                                enabled: t.enabled
+                            }).catch(() => null)
+                        );
+                    }
+                }
+
+                // Delete targets removed from the form
+                for (const et of existingTargets) {
+                    if (!currentFormIds.has(et.id)) {
+                        promises.push(gatewayApi.deleteTarget(et.id).catch(() => null));
+                    }
+                }
+
+                await Promise.all(promises);
+            } else if (!isEdit && upstreamId && targets.length > 0) {
+                await Promise.all(
+                    targets.map(t =>
+                        gatewayApi.createTarget(upstreamId, {
+                            target: `${t.host}:${t.port}`,
+                            host: t.host,
+                            port: t.port,
+                            weight: t.weight,
+                            enabled: t.enabled
+                        }).catch(() => null)
+                    )
+                );
             }
 
             navigate('/upstreams');

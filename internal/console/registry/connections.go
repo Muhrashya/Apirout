@@ -19,6 +19,7 @@ type Connection struct {
 	Username               string    `db:"username" json:"username"`
 	PasswordEncrypted      string    `db:"password_encrypted" json:"-"`
 	SSLMode                string    `db:"ssl_mode" json:"sslmode"`
+	IsReadOnly             bool      `db:"is_read_only" json:"is_read_only"`
 	SSHEnabled             bool      `db:"ssh_enabled" json:"ssh_enabled"`
 	SSHHost                *string   `db:"ssh_host" json:"ssh_host"`
 	SSHPort                int       `db:"ssh_port" json:"ssh_port"`
@@ -41,7 +42,7 @@ type ConnectionHealth struct {
 
 // connectionColumns lists all columns mapped to Connection struct
 const connectionColumns = `id, group_id, name, db_type, host, port, db_name, username, password_encrypted, ssl_mode,
-	ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_method, ssh_password_encrypted, ssh_private_key_encrypted,
+	is_read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_method, ssh_password_encrypted, ssh_private_key_encrypted,
 	created_at, updated_at`
 
 // ListConnections returns all connections
@@ -93,12 +94,12 @@ func (r *Registry) CreateConnection(conn *Connection) error {
 	_, err := r.db.Exec(r.db.Rebind(`
 		INSERT INTO connections 
 		(id, group_id, name, db_type, host, port, db_name, username, password_encrypted, ssl_mode,
-		 ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_method, ssh_password_encrypted, ssh_private_key_encrypted,
+		 is_read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_method, ssh_password_encrypted, ssh_private_key_encrypted,
 		 created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		conn.ID, conn.GroupID, conn.Name, conn.DBType, conn.Host, conn.Port, conn.DBName,
 		conn.Username, conn.PasswordEncrypted, conn.SSLMode,
-		conn.SSHEnabled, conn.SSHHost, conn.SSHPort, conn.SSHUser, conn.SSHAuthMethod,
+		conn.IsReadOnly, conn.SSHEnabled, conn.SSHHost, conn.SSHPort, conn.SSHUser, conn.SSHAuthMethod,
 		conn.SSHPasswordEncrypted, conn.SSHPrivateKeyEncrypted,
 		conn.CreatedAt, conn.UpdatedAt,
 	)
@@ -111,23 +112,35 @@ func (r *Registry) UpdateConnection(conn *Connection) error {
 	_, err := r.db.Exec(r.db.Rebind(`
 		UPDATE connections SET
 		group_id = ?, name = ?, db_type = ?, host = ?, port = ?, db_name = ?, username = ?, 
-		password_encrypted = ?, ssl_mode = ?, ssh_enabled = ?, ssh_host = ?, ssh_port = ?, 
+		password_encrypted = ?, ssl_mode = ?, is_read_only = ?, ssh_enabled = ?, ssh_host = ?, ssh_port = ?, 
 		ssh_user = ?, ssh_auth_method = ?, ssh_password_encrypted = ?, ssh_private_key_encrypted = ?,
 		updated_at = ?
 		WHERE id = ?`),
 		conn.GroupID, conn.Name, conn.DBType, conn.Host, conn.Port, conn.DBName,
-		conn.Username, conn.PasswordEncrypted, conn.SSLMode,
+		conn.Username, conn.PasswordEncrypted, conn.SSLMode, conn.IsReadOnly,
 		conn.SSHEnabled, conn.SSHHost, conn.SSHPort, conn.SSHUser, conn.SSHAuthMethod,
 		conn.SSHPasswordEncrypted, conn.SSHPrivateKeyEncrypted,
 		conn.UpdatedAt, conn.ID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if r.publisher != nil {
+		_ = r.publisher.PublishConnectionChanged("UPDATE", conn.ID)
+	}
+	return nil
 }
 
 // DeleteConnection deletes a connection
 func (r *Registry) DeleteConnection(id string) error {
 	_, err := r.db.Exec(r.db.Rebind("DELETE FROM connections WHERE id = ?"), id)
-	return err
+	if err != nil {
+		return err
+	}
+	if r.publisher != nil {
+		_ = r.publisher.PublishConnectionChanged("DELETE", id)
+	}
+	return nil
 }
 
 // GetConnectionHealth returns health status for a connection

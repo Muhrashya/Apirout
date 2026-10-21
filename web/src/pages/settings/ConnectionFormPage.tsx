@@ -86,6 +86,11 @@ export default function ConnectionFormPage() {
             defaultDb = 'admin';
             defaultAuthSource = 'admin';
             defaultSsl = 'disable';
+        } else if (newType === 'trino') {
+            defaultPort = 8080;
+            defaultUser = 'trino';
+            defaultDb = 'tpch';
+            defaultSsl = 'disable';
         }
 
         setForm(prev => ({
@@ -262,6 +267,7 @@ export default function ConnectionFormPage() {
     const isMssql = form.db_type === 'mssql';
     const isPostgres = form.db_type === 'postgres';
     const isMysql = form.db_type === 'mysql';
+    const isTrino = form.db_type === 'trino';
 
     return (
         <div className="overview-page-wrapper" style={{ paddingBottom: '60px' }}>
@@ -626,8 +632,8 @@ export default function ConnectionFormPage() {
                         )
                     )}
 
-                    {/* POSTGRESQL & MYSQL CONFIGURATION */}
-                    {(isPostgres || isMysql) && (
+                    {/* POSTGRESQL, MYSQL & TRINO CONFIGURATION */}
+                    {(isPostgres || isMysql || isTrino) && (
                         <>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                                 <div className="form-group">
@@ -635,7 +641,11 @@ export default function ConnectionFormPage() {
                                     <input
                                         type="text"
                                         className="input"
-                                        placeholder={isPostgres ? 'e.g. postgres, 127.0.0.1, or db.internal' : 'e.g. mysql, 127.0.0.1'}
+                                        placeholder={
+                                            isPostgres ? 'e.g. postgres, 127.0.0.1, or db.internal' :
+                                            isTrino ? 'e.g. trino, 127.0.0.1, or trino-coordinator' :
+                                            'e.g. mysql, 127.0.0.1'
+                                        }
                                         required
                                         value={form.host}
                                         onChange={e => setForm(prev => ({ ...prev, host: e.target.value }))}
@@ -663,17 +673,19 @@ export default function ConnectionFormPage() {
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                 <div className="form-group">
-                                    <label className="label">Database Name *</label>
+                                    <label className="label">{isTrino ? 'Catalog / Schema *' : 'Database Name *'}</label>
                                     <input
                                         type="text"
                                         className="input"
-                                        placeholder="e.g. main_db or production"
+                                        placeholder={isTrino ? 'e.g. tpch, tpch/sf1, or iceberg/analytics' : 'e.g. main_db or production'}
                                         required
                                         value={form.dbname}
                                         onChange={e => setForm(prev => ({ ...prev, dbname: e.target.value }))}
                                     />
                                     <span style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                                        Specific database or schema to inspect tables and execute queries on.
+                                        {isTrino
+                                            ? 'Trino catalog and optional schema (<catalog> or <catalog>/<schema>, defaults to schema default).'
+                                            : 'Specific database or schema to inspect tables and execute queries on.'}
                                     </span>
                                 </div>
 
@@ -684,8 +696,8 @@ export default function ConnectionFormPage() {
                                         value={form.sslmode}
                                         onChange={e => setForm(prev => ({ ...prev, sslmode: e.target.value }))}
                                     >
-                                        <option value="disable">Disable (Standard local/docker network)</option>
-                                        <option value="require">Require (Encrypted connection)</option>
+                                        <option value="disable">Disable (Standard local/docker network{isTrino ? ' - HTTP' : ''})</option>
+                                        <option value="require">Require (Encrypted connection{isTrino ? ' - HTTPS' : ''})</option>
                                         {isPostgres && <option value="verify-ca">Verify-CA (Verify certificate authority)</option>}
                                         {isPostgres && <option value="verify-full">Verify-Full (Strict hostname verification)</option>}
                                     </select>
@@ -714,6 +726,7 @@ export default function ConnectionFormPage() {
                                     placeholder={
                                         isMongo ? 'e.g. admin or root' :
                                         isMssql ? 'sa' :
+                                        isTrino ? 'trino' :
                                         isMysql ? 'root' : 'postgres'
                                     }
                                     required
@@ -728,7 +741,7 @@ export default function ConnectionFormPage() {
                             <div className="form-group">
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <label className="label">
-                                        {`Password ${isEdit ? '(Leave blank to keep)' : '*'}`}
+                                        {`Password ${isEdit ? '(Leave blank to keep)' : isTrino ? '(Optional)' : '*'}`}
                                     </label>
                                     <button
                                         type="button"
@@ -741,7 +754,7 @@ export default function ConnectionFormPage() {
                                 <input
                                     type={showPassword ? 'text' : 'password'}
                                     className="input"
-                                    placeholder={isEdit ? "•••••••• (Unchanged)" : "Database user password"}
+                                    placeholder={isEdit ? "•••••••• (Unchanged)" : isTrino ? "Leave blank if authentication is disabled" : "Database user password"}
                                     value={form.password}
                                     onChange={e => setForm(prev => ({ ...prev, password: e.target.value }))}
                                 />

@@ -298,6 +298,7 @@ func (r *Registry) getSQLiteMigrations() []string {
 			username TEXT NOT NULL,
 			password_encrypted TEXT NOT NULL,
 			ssl_mode TEXT DEFAULT 'disable',
+			is_read_only INTEGER DEFAULT 0,
 			ssh_enabled INTEGER DEFAULT 0,
 			ssh_host TEXT,
 			ssh_port INTEGER DEFAULT 22,
@@ -393,6 +394,7 @@ func (r *Registry) getSQLiteMigrations() []string {
 		// Add missing columns to connections (for older databases)
 		`ALTER TABLE connections ADD COLUMN dbname TEXT`,
 		`ALTER TABLE connections ADD COLUMN sslmode TEXT`,
+		`ALTER TABLE connections ADD COLUMN is_read_only INTEGER DEFAULT 0`,
 		`ALTER TABLE connections ADD COLUMN ssh_auth_method TEXT`,
 		`ALTER TABLE connections ADD COLUMN updated_at DATETIME`,
 
@@ -482,6 +484,7 @@ func (r *Registry) getPostgresMigrations() []string {
 			username VARCHAR(255) NOT NULL,
 			password_encrypted TEXT NOT NULL,
 			ssl_mode VARCHAR(50) DEFAULT 'disable',
+			is_read_only BOOLEAN DEFAULT FALSE,
 			ssh_enabled BOOLEAN DEFAULT FALSE,
 			ssh_host VARCHAR(255),
 			ssh_port INTEGER DEFAULT 22,
@@ -496,6 +499,7 @@ func (r *Registry) getPostgresMigrations() []string {
 		)`,
 
 		// Add missing columns to connections (for older databases)
+		`ALTER TABLE connections ADD COLUMN IF NOT EXISTS is_read_only BOOLEAN DEFAULT FALSE`,
 		`ALTER TABLE connections ADD COLUMN IF NOT EXISTS ssh_auth_method VARCHAR(50) DEFAULT 'password'`,
 		`ALTER TABLE connections ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
 
@@ -662,6 +666,7 @@ func (r *Registry) getMySQLMigrations() []string {
 			username VARCHAR(255) NOT NULL,
 			password_encrypted TEXT NOT NULL,
 			ssl_mode VARCHAR(50) DEFAULT 'disable',
+			is_read_only TINYINT(1) DEFAULT 0,
 			ssh_enabled TINYINT(1) DEFAULT 0,
 			ssh_host VARCHAR(255),
 			ssh_port INT DEFAULT 22,
@@ -751,6 +756,7 @@ func (r *Registry) getMySQLMigrations() []string {
 		`ALTER TABLE audit_logs ADD COLUMN duration_ms INT`,
 		`ALTER TABLE audit_logs ADD COLUMN error_message TEXT`,
 		`ALTER TABLE audit_logs ADD COLUMN ip_address VARCHAR(255)`,
+		`ALTER TABLE connections ADD COLUMN is_read_only TINYINT(1) DEFAULT 0`,
 
 		// Indexes
 		`CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp DESC)`,

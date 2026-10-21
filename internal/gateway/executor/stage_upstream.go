@@ -118,6 +118,20 @@ func (s *upstreamStage) Execute(c *pipeline.Context) error {
 
 				// C2: Route performs Instant REST table CRUD on the connected database
 				if h.instantHandler != nil {
+					// Check read-only connection enforcement before mutating table CRUD
+					if h.reader != nil && connID != "" {
+						conn, err := h.reader.GetConnectionByID(connID)
+						if err == nil && conn != nil && conn.IsReadOnly {
+							if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete {
+								rec.Header().Set("Allow", "GET, HEAD, OPTIONS")
+								c.SetError(http.StatusMethodNotAllowed, "Connection is configured as read-only: mutating operations are prohibited")
+								responder.Error(rec, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, "Connection is configured as read-only: mutating operations are prohibited", map[string]string{"Allow": "GET, HEAD, OPTIONS"})
+								c.MarkHandled()
+								return nil
+							}
+						}
+					}
+
 					table, id := extractTableAndID(endpoint.Path, r.URL.Path, service.Path)
 					upStart := time.Now()
 					h.instantHandler.ExecuteTableCRUD(rec, r, connID, table, id)

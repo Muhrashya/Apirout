@@ -21,6 +21,8 @@ func TestGetAdapter_Resolution(t *testing.T) {
 		{dbType: "mssql", wantType: "mssql", wantDriver: "sqlserver"},
 		{dbType: "sqlserver", wantType: "mssql", wantDriver: "sqlserver"},
 		{dbType: "MSSQL", wantType: "mssql", wantDriver: "sqlserver"},
+		{dbType: "trino", wantType: "trino", wantDriver: "trino"},
+		{dbType: "TRINO", wantType: "trino", wantDriver: "trino"},
 		{dbType: "sqlite", expectError: true},
 		{dbType: "oracle", expectError: true},
 		{dbType: "invalid", expectError: true},
@@ -66,6 +68,12 @@ func TestDatabaseAdapter_BuildConnectionString(t *testing.T) {
 	if !strings.Contains(msConn, "sqlserver://sa:") || !strings.Contains(msConn, "database=app_db") {
 		t.Errorf("unexpected MSSQL connection string: %s", msConn)
 	}
+
+	tr := NewTrinoAdapter()
+	trConn := tr.BuildConnectionString("lakehouse.internal", 8080, "iceberg/analytics", "analyst", "pass123", "")
+	if !strings.Contains(trConn, "http://analyst:pass123@lakehouse.internal:8080") || !strings.Contains(trConn, "catalog=iceberg") || !strings.Contains(trConn, "schema=analytics") {
+		t.Errorf("unexpected Trino connection string: %s", trConn)
+	}
 }
 
 func TestDatabaseAdapter_QuoteIdentifier(t *testing.T) {
@@ -82,6 +90,11 @@ func TestDatabaseAdapter_QuoteIdentifier(t *testing.T) {
 	ms := NewMSSQLAdapter()
 	if ms.QuoteIdentifier("users") != "[users]" {
 		t.Errorf("got %s, want %s", ms.QuoteIdentifier("users"), "[users]")
+	}
+
+	tr := NewTrinoAdapter()
+	if tr.QuoteIdentifier("orders") != `"orders"` {
+		t.Errorf("got %s, want %s", tr.QuoteIdentifier("orders"), `"orders"`)
 	}
 }
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { apiClient } from '../api/apiClient';
+import { getGatewayBaseUrl } from '../api/gatewayApi';
 import { IconDatabase, IconBolt, IconSearch, IconEye } from '../components/Icons';
 
 interface Connection {
@@ -39,6 +40,8 @@ export default function InstantAPI() {
     const [tableSearch, setTableSearch] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
+    const [showGenerateModal, setShowGenerateModal] = useState(false);
+    const [accessPolicy, setAccessPolicy] = useState<'protected' | 'public'>('protected');
 
     // Query tester state
     const [filterQuery, setFilterQuery] = useState('');
@@ -99,16 +102,21 @@ export default function InstantAPI() {
         fetchSchema(id);
     };
 
-    const handleGenerateAllEndpoints = async () => {
+    const handleGenerateAllEndpoints = () => {
         if (!selectedConnId) return;
-        if (!confirm('This will automatically generate Gateway REST routes for all tables in this connection. Proceed?')) {
-            return;
-        }
+        setShowGenerateModal(true);
+    };
+
+    const confirmGenerateEndpoints = async () => {
+        if (!selectedConnId) return;
         setGenerating(true);
         setError(null);
         setSuccessMsg(null);
+        setShowGenerateModal(false);
         try {
-            const res = await apiClient.post<{ message: string }>(`/connections/${selectedConnId}/generate-endpoints`, {});
+            const res = await apiClient.post<{ message: string }>(`/connections/${selectedConnId}/generate-endpoints`, {
+                is_public: accessPolicy === 'public',
+            });
             setSuccessMsg(res.message || 'REST routes successfully generated and published!');
         } catch (err: any) {
             setError(err?.message || 'Failed to generate endpoints');
@@ -122,9 +130,9 @@ export default function InstantAPI() {
         setQueryLoading(true);
         setError(null);
         try {
-            // Target the Data Plane Gateway Instant API on port 8000
+            // Target the Data Plane Gateway Instant API dynamically
             const queryParams = filterQuery ? `?${filterQuery}` : '';
-            const gatewayUrl = `http://localhost:8000/api/v1/instant/${selectedConnId}/${selectedTable.name}${queryParams}`;
+            const gatewayUrl = `${getGatewayBaseUrl()}/api/v1/instant/${selectedConnId}/${selectedTable.name}${queryParams}`;
             const token = localStorage.getItem('token');
             const headers: HeadersInit = {};
             if (token) {
@@ -462,7 +470,7 @@ export default function InstantAPI() {
                                             )}
                                         </div>
                                         <p style={{ fontSize: '12.5px', color: '#64748b', margin: '4px 0 0 0' }}>
-                                            Instant Gateway URL: <code style={{ backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', color: '#0f172a' }}>http://localhost:8000/api/v1/instant/{selectedConnId}/{selectedTable.name}</code>
+                                            Instant Gateway URL: <code style={{ backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', color: '#0f172a' }}>{getGatewayBaseUrl()}/api/v1/instant/{selectedConnId}/{selectedTable.name}</code>
                                         </p>
                                     </div>
                                 </div>
@@ -649,7 +657,7 @@ export default function InstantAPI() {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                 <span style={{ color: '#64748b', fontSize: '11.5px', fontFamily: 'sans-serif' }}>{item.desc}</span>
                                                 <button
-                                                    onClick={() => copyToClipboard(`curl -X ${item.method} "http://localhost:8000${item.path}"`, item.id)}
+                                                    onClick={() => copyToClipboard(`curl -X ${item.method} "${getGatewayBaseUrl()}${item.path}"`, item.id)}
                                                     style={{
                                                         background: 'transparent',
                                                         border: '1px solid #cbd5e1',
@@ -669,6 +677,168 @@ export default function InstantAPI() {
                             </div>
                         </div>
                     )}
+                </div>
+            )}
+
+            {/* Access Policy Selection Modal */}
+            {showGenerateModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+                    backdropFilter: 'blur(4px)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000,
+                    padding: '16px'
+                }}>
+                    <div style={{
+                        backgroundColor: '#ffffff',
+                        borderRadius: '12px',
+                        border: '1px solid #e2e8f0',
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                        width: '100%',
+                        maxWidth: '520px',
+                        padding: '24px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                            <div style={{
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '8px',
+                                backgroundColor: '#dbeafe',
+                                color: '#2563eb',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                <IconBolt width={20} height={20} />
+                            </div>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 600, color: '#0f172a' }}>
+                                    Generate Instant REST APIs
+                                </h3>
+                                <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                                    Connection: <strong>{selectedConn?.name}</strong> ({(schema?.tables || []).length} tables discovered)
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style={{ margin: '16px 0', borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
+                                Access Policy &amp; Security Baseline
+                            </label>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <label style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '12px',
+                                    padding: '12px',
+                                    borderRadius: '8px',
+                                    border: accessPolicy === 'protected' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                    backgroundColor: accessPolicy === 'protected' ? '#eff6ff' : '#ffffff',
+                                    cursor: 'pointer'
+                                }}>
+                                    <input
+                                        type="radio"
+                                        name="accessPolicy"
+                                        value="protected"
+                                        checked={accessPolicy === 'protected'}
+                                        onChange={() => setAccessPolicy('protected')}
+                                        style={{ marginTop: '3px' }}
+                                    />
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ fontSize: '13.5px', fontWeight: 600, color: '#0f172a' }}>
+                                                Protected with API Key
+                                            </span>
+                                            <span style={{ fontSize: '11px', fontWeight: 600, backgroundColor: '#dcfce7', color: '#16a34a', padding: '1px 6px', borderRadius: '4px' }}>
+                                                Recommended
+                                            </span>
+                                        </div>
+                                        <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                                            Requires authentication via <code>X-API-Key</code> or Bearer token. Includes default 60 RPM / 10 burst rate limiter per consumer key.
+                                        </p>
+                                    </div>
+                                </label>
+
+                                <label style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '12px',
+                                    padding: '12px',
+                                    borderRadius: '8px',
+                                    border: accessPolicy === 'public' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                    backgroundColor: accessPolicy === 'public' ? '#eff6ff' : '#ffffff',
+                                    cursor: 'pointer'
+                                }}>
+                                    <input
+                                        type="radio"
+                                        name="accessPolicy"
+                                        value="public"
+                                        checked={accessPolicy === 'public'}
+                                        onChange={() => setAccessPolicy('public')}
+                                        style={{ marginTop: '3px' }}
+                                    />
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ fontSize: '13.5px', fontWeight: 600, color: '#0f172a' }}>
+                                                Public Read-Only
+                                            </span>
+                                        </div>
+                                        <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                                            Open to unauthenticated callers. Protected by client IP rate limiting (60 RPM).
+                                        </p>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+                            <button
+                                type="button"
+                                onClick={() => setShowGenerateModal(false)}
+                                style={{
+                                    padding: '8px 16px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    backgroundColor: '#ffffff',
+                                    color: '#475569',
+                                    fontSize: '13px',
+                                    fontWeight: 500,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmGenerateEndpoints}
+                                disabled={generating}
+                                style={{
+                                    padding: '8px 18px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    backgroundColor: '#2563eb',
+                                    color: '#ffffff',
+                                    fontSize: '13px',
+                                    fontWeight: 600,
+                                    cursor: generating ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <IconBolt width={14} height={14} />
+                                <span>{generating ? 'Generating...' : 'Confirm & Generate'}</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

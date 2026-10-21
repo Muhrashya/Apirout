@@ -249,3 +249,108 @@ func TestMSSQLPaginationWithOrderBy(t *testing.T) {
 		t.Errorf("expected ORDER BY (SELECT NULL), got:\n%s", pagedSQL2)
 	}
 }
+
+func TestTrinoDialectGenerator(t *testing.T) {
+	gen, err := GetGenerator("trino")
+	if err != nil {
+		t.Fatalf("unexpected error getting trino generator: %v", err)
+	}
+
+	if gen.Dialect() != "trino" {
+		t.Errorf("expected dialect trino, got %s", gen.Dialect())
+	}
+
+	if gen.QuoteIdentifier("orders") != `"orders"` {
+		t.Errorf("expected \"orders\", got %s", gen.QuoteIdentifier("orders"))
+	}
+
+	// 1. Select with filters and pagination
+	spec := QuerySpec{
+		Table:   "orders",
+		Columns: []string{"id", "amount", "status"},
+		Filters: []FilterCondition{
+			{Column: "status", Operator: OpEq, Value: "completed"},
+			{Column: "amount", Operator: OpGte, Value: 100.50},
+		},
+		OrderBy: []OrderBy{
+			{Column: "id", Direction: OrderAsc},
+		},
+		Limit:  10,
+		Offset: 20,
+	}
+
+	sqlStr, args, err := gen.BuildSelect(spec)
+	if err != nil {
+		t.Fatalf("BuildSelect failed: %v", err)
+	}
+	if !strings.Contains(sqlStr, `FROM "orders"`) {
+		t.Errorf("expected quoted table \"orders\", got: %s", sqlStr)
+	}
+	if !strings.Contains(sqlStr, `LIMIT 10 OFFSET 20`) {
+		t.Errorf("expected LIMIT 10 OFFSET 20, got: %s", sqlStr)
+	}
+	if len(args) != 2 {
+		t.Errorf("expected 2 args, got %d", len(args))
+	}
+
+	// 2. Insert
+	ins := InsertSpec{
+		Table: "orders",
+		Values: map[string]any{
+			"id":     1,
+			"amount": 50,
+		},
+	}
+	insSQL, insArgs, err := gen.BuildInsert(ins)
+	if err != nil {
+		t.Fatalf("BuildInsert failed: %v", err)
+	}
+	if !strings.Contains(insSQL, `INSERT INTO "orders"`) {
+		t.Errorf("expected INSERT INTO \"orders\", got: %s", insSQL)
+	}
+	if len(insArgs) != 2 {
+		t.Errorf("expected 2 insert args, got %d", len(insArgs))
+	}
+
+	// 3. Update (Must return error for analytical engine)
+	up := UpdateSpec{
+		Table: "orders",
+		Values: map[string]any{
+			"amount": 60,
+		},
+		Filters: []FilterCondition{
+			{Column: "id", Operator: OpEq, Value: 1},
+		},
+	}
+	_, _, err = gen.BuildUpdate(up)
+	if err == nil || !strings.Contains(err.Error(), "does not support row-level UPDATE") {
+		t.Errorf("expected row-level update error, got: %v", err)
+	}
+
+	// 4. Delete
+	del := DeleteSpec{
+		Table: "orders",
+		Filters: []FilterCondition{
+			{Column: "id", Operator: OpEq, Value: 1},
+		},
+	}
+	delSQL, delArgs, err := gen.BuildDelete(del)
+	if err != nil {
+		t.Fatalf("BuildDelete failed: %v", err)
+	}
+	if !strings.Contains(delSQL, `DELETE FROM "orders" WHERE "id" = ?`) {
+		t.Errorf("expected DELETE FROM \"orders\", got: %s", delSQL)
+	}
+	if len(delArgs) != 1 {
+		t.Errorf("expected 1 delete arg, got %d", len(delArgs))
+	}
+
+	// 5. WrapPagination
+	paginated, err := gen.WrapPagination("SELECT * FROM orders", 50, 100)
+	if err != nil {
+		t.Fatalf("WrapPagination failed: %v", err)
+	}
+	if !strings.Contains(paginated, "LIMIT 50 OFFSET 100") {
+		t.Errorf("expected LIMIT 50 OFFSET 100, got: %s", paginated)
+	}
+}

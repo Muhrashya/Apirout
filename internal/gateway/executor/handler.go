@@ -35,7 +35,7 @@ type Handler struct {
 	outboundInjector *auth.OutboundInjector
 	instantHandler   *InstantCRUDHandler
 	targetPool       targetpool.TargetPool
-	rateLimiter      *tokenBucketLimiter
+	rateLimiter      RateLimiter
 	proxyTransports  sync.Map // serviceID -> *http.Transport
 	router           atomic.Pointer[router.RadixRouter]
 	circuitBreaker   *upstream.PassiveCircuitBreaker
@@ -116,6 +116,18 @@ func (h *Handler) GetTargetPool() targetpool.TargetPool {
 func (h *Handler) SetTargetPool(pool targetpool.TargetPool) {
 	if pool != nil {
 		h.targetPool = pool
+	}
+}
+
+// GetRateLimiter returns the active rate limiter
+func (h *Handler) GetRateLimiter() RateLimiter {
+	return h.rateLimiter
+}
+
+// SetRateLimiter configures the active rate limiter
+func (h *Handler) SetRateLimiter(rl RateLimiter) {
+	if rl != nil {
+		h.rateLimiter = rl
 	}
 }
 

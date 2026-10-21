@@ -12,6 +12,7 @@ func resetEnv() {
 		"ADMIN_ALLOWED_IPS", "ADMIN_SECRET", "JWT_SECRET", "APP_ENCRYPTION_KEY",
 		"DB_TYPE", "DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_SSLMODE",
 		"REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "ADMIN_EMAIL", "ADMIN_PASSWORD",
+		"BOOTSTRAP_ADMIN_EMAIL", "BOOTSTRAP_ADMIN_PASSWORD", "DISTRIBUTED_RATE_LIMIT",
 	}
 	for _, v := range vars {
 		os.Unsetenv(v)
@@ -139,6 +140,44 @@ func TestConfig_Production_ComposeFallbackSecretsRejection(t *testing.T) {
 	_, err = Load()
 	if err == nil || !strings.Contains(err.Error(), "APP_ENCRYPTION_KEY must be at least 32 characters and must not use default placeholder") {
 		t.Fatalf("expected error rejecting compose fallback APP_ENCRYPTION_KEY, got: %v", err)
+	}
+}
+
+func TestConfig_BootstrapAndDistributedRateLimit(t *testing.T) {
+	resetEnv()
+	os.Setenv("APP_ENV", "development")
+	os.Setenv("BOOTSTRAP_ADMIN_EMAIL", "admin@enterprise.internal")
+	os.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "SuperSecurePass2026!")
+	os.Setenv("DISTRIBUTED_RATE_LIMIT", "true")
+	defer resetEnv()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected Load() to succeed, got: %v", err)
+	}
+
+	if cfg.BootstrapAdminEmail != "admin@enterprise.internal" {
+		t.Errorf("expected BootstrapAdminEmail to match, got: %s", cfg.BootstrapAdminEmail)
+	}
+	if cfg.BootstrapAdminPassword != "SuperSecurePass2026!" {
+		t.Errorf("expected BootstrapAdminPassword to match, got: %s", cfg.BootstrapAdminPassword)
+	}
+	if !cfg.DistributedRateLimit {
+		t.Errorf("expected DistributedRateLimit to be true")
+	}
+
+	// Validation: Mismatched bootstrap credentials
+	os.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+	_, err = Load()
+	if err == nil || !strings.Contains(err.Error(), "BOOTSTRAP_ADMIN_PASSWORD is required") {
+		t.Fatalf("expected error for missing BOOTSTRAP_ADMIN_PASSWORD, got: %v", err)
+	}
+
+	os.Setenv("BOOTSTRAP_ADMIN_EMAIL", "")
+	os.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "SuperSecurePass2026!")
+	_, err = Load()
+	if err == nil || !strings.Contains(err.Error(), "BOOTSTRAP_ADMIN_EMAIL is required") {
+		t.Fatalf("expected error for missing BOOTSTRAP_ADMIN_EMAIL, got: %v", err)
 	}
 }
 

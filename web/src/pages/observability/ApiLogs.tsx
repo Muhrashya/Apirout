@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { gatewayApi, ApiRequest, PaginationMeta } from '../../api/gatewayApi';
+import { gatewayApi, getGatewayBaseUrl, ApiRequest, PaginationMeta } from '../../api/gatewayApi';
 import { useToast } from '../../components/Toast';
 import { Pagination } from '../../components/Pagination';
 import {
@@ -131,7 +131,7 @@ export default function ApiLogsPage() {
     };
 
     const handleCopyCurl = (req: ApiRequest) => {
-        const curlCmd = `curl -X ${req.method} "http://localhost:8000${req.path}"`;
+        const curlCmd = `curl -X ${req.method} "${getGatewayBaseUrl()}${req.path}"`;
         navigator.clipboard.writeText(curlCmd);
         setIsCopied(true);
         toast.success('cURL command copied to clipboard');
@@ -513,7 +513,7 @@ export default function ApiLogsPage() {
                         {drawerTab === 'service' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                 <InspectorRow label="Service Name" value={selectedReq.service_name || 'Gateway Core Service'} />
-                                <InspectorRow label="Upstream Destination" value={selectedReq.upstream_uri || 'http://localhost:8000'} mono />
+                                <InspectorRow label="Upstream Destination" value={selectedReq.upstream_uri || getGatewayBaseUrl()} mono />
                                 <InspectorRow label="Protocol" value="HTTP/1.1" />
                                 <InspectorRow label="Upstream Latency" value={`${selectedReq.upstream_latency_ms ?? 0}ms`} />
                                 <InspectorRow label="Health Status" value="Healthy" badge />

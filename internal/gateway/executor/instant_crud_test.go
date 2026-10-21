@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
 
@@ -28,6 +29,7 @@ func TestInstantCRUD_DbTypeDriver(t *testing.T) {
 		{dbType: "mysql", wantDriver: "mysql"},
 		{dbType: "mssql", wantDriver: "sqlserver"},
 		{dbType: "sqlserver", wantDriver: "sqlserver"},
+		{dbType: "trino", wantDriver: "trino"},
 		{dbType: "sqlite", wantErr: true},
 		{dbType: "oracle", wantErr: true},
 	}
@@ -64,10 +66,13 @@ func TestInstantCRUD_QuoteIdentifier(t *testing.T) {
 	if quoteIdentifier("sqlserver", "orders") != "[orders]" {
 		t.Errorf("sqlserver quote: got %s, want %s", quoteIdentifier("sqlserver", "orders"), "[orders]")
 	}
+	if quoteIdentifier("trino", "orders") != `"orders"` {
+		t.Errorf("trino quote: got %s, want %s", quoteIdentifier("trino", "orders"), `"orders"`)
+	}
 }
 
 func TestInstantCRUD_DialectGenerators_AllEngines(t *testing.T) {
-	engines := []string{"postgres", "mysql", "mssql"}
+	engines := []string{"postgres", "mysql", "mssql", "trino"}
 
 	for _, eng := range engines {
 		t.Run(eng, func(t *testing.T) {
@@ -119,11 +124,20 @@ func TestInstantCRUD_DialectGenerators_AllEngines(t *testing.T) {
 					{Column: "id", Operator: sqldialect.OpEq, Value: "42"},
 				},
 			})
-			if err != nil {
-				t.Fatalf("BuildUpdate failed: %v", err)
-			}
-			if !strings.Contains(updQuery, "UPDATE") || len(updArgs) != 2 {
-				t.Errorf("invalid update query %s with args %+v", updQuery, updArgs)
+			if eng == "trino" {
+				if err == nil {
+					t.Fatalf("expected BuildUpdate to fail for trino analytical engine, got query: %s", updQuery)
+				}
+				if !strings.Contains(err.Error(), "does not support row-level UPDATE") {
+					t.Errorf("expected row-level update error, got: %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("BuildUpdate failed: %v", err)
+				}
+				if !strings.Contains(updQuery, "UPDATE") || len(updArgs) != 2 {
+					t.Errorf("invalid update query %s with args %+v", updQuery, updArgs)
+				}
 			}
 
 			// 4. DELETE query
@@ -162,6 +176,7 @@ func TestInstantCRUD_AuthorizeConnectionAccess_BOLA(t *testing.T) {
 			username TEXT NOT NULL,
 			password_encrypted TEXT NOT NULL,
 			ssl_mode TEXT NOT NULL,
+			is_read_only INT DEFAULT 0,
 			ssh_enabled INT DEFAULT 0,
 			ssh_host TEXT,
 			ssh_port INT DEFAULT 22,
@@ -281,4 +296,102 @@ func TestInstantCRUD_AuthorizeConnectionAccess_BOLA(t *testing.T) {
 		t.Errorf("unknown connection expected 404, got code=%d err=%v", code, err)
 	}
 }
+
+func TestInstantCRUD_ReadOnlyConnectionEnforcement(t *testing.T) {
+	db, err := sqlx.Connect("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open in-memory sqlite: %v", err)
+	}
+	defer db.Close()
+
+	schema := `
+		CREATE TABLE connections (
+			id TEXT PRIMARY KEY,
+			group_id TEXT,
+			name TEXT NOT NULL,
+			db_type TEXT NOT NULL,
+			host TEXT NOT NULL,
+			port INT NOT NULL,
+			db_name TEXT NOT NULL,
+			username TEXT NOT NULL,
+			password_encrypted TEXT NOT NULL,
+			ssl_mode TEXT NOT NULL,
+			is_read_only INT DEFAULT 0,
+			ssh_enabled INT DEFAULT 0,
+			ssh_host TEXT,
+			ssh_port INT DEFAULT 22,
+			ssh_user TEXT,
+			ssh_auth_method TEXT,
+			ssh_password_encrypted TEXT,
+			ssh_private_key_encrypted TEXT,
+			created_at DATETIME,
+			updated_at DATETIME
+		);
+	`
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatalf("failed to create schema: %v", err)
+	}
+
+	_, err = db.Exec(`
+		INSERT INTO connections (id, group_id, name, db_type, host, port, db_name, username, password_encrypted, ssl_mode, is_read_only, created_at, updated_at)
+		VALUES ('conn-ro', 'group-a', 'Read Only DB', 'postgres', 'localhost', 5432, 'db_ro', 'user', '', 'disable', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+		       ('conn-rw', 'group-a', 'Read Write DB', 'postgres', 'localhost', 5432, 'db_rw', 'user', '', 'disable', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`)
+	if err != nil {
+		t.Fatalf("failed to insert connections: %v", err)
+	}
+
+	reader := registry.NewReaderWithDB(db, "sqlite")
+	handler := NewInstantCRUDHandler(reader, "test-enc-key-32-chars-long!", nil, nil, "admin-master-secret", "")
+
+	mutatingMethods := []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}
+
+	for _, method := range mutatingMethods {
+		t.Run("ExecuteTableCRUD_RO_"+method, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(method, "/api/v1/instant/conn-ro/users", nil)
+			handler.ExecuteTableCRUD(rec, req, "conn-ro", "users", "123")
+
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("expected 405 Method Not Allowed for %s on read-only connection, got %d", method, rec.Code)
+			}
+			allowHeader := rec.Header().Get("Allow")
+			if allowHeader != "GET, HEAD, OPTIONS" {
+				t.Errorf("expected Allow header 'GET, HEAD, OPTIONS', got %q", allowHeader)
+			}
+		})
+	}
+
+	// Test direct handler methods: InsertRow, UpdateRow, DeleteRow
+	t.Run("InsertRow_RO_405", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/api/v1/instant/conn-ro/users", strings.NewReader(`{"name":"test"}`))
+		req = mux.SetURLVars(req, map[string]string{"connId": "conn-ro", "table": "users"})
+		handler.InsertRow(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("InsertRow expected 405 on read-only connection, got %d", rec.Code)
+		}
+	})
+
+	t.Run("UpdateRow_RO_405", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("PUT", "/api/v1/instant/conn-ro/users/123", strings.NewReader(`{"name":"test"}`))
+		req = mux.SetURLVars(req, map[string]string{"connId": "conn-ro", "table": "users", "id": "123"})
+		handler.UpdateRow(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("UpdateRow expected 405 on read-only connection, got %d", rec.Code)
+		}
+	})
+
+	t.Run("DeleteRow_RO_405", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("DELETE", "/api/v1/instant/conn-ro/users/123", nil)
+		req = mux.SetURLVars(req, map[string]string{"connId": "conn-ro", "table": "users", "id": "123"})
+		handler.DeleteRow(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("DeleteRow expected 405 on read-only connection, got %d", rec.Code)
+		}
+	})
+}
+
 

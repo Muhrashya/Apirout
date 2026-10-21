@@ -510,6 +510,15 @@ func (h *InstantCRUDHandler) InsertRow(w http.ResponseWriter, r *http.Request) {
 	connID := vars["connId"]
 	tableName := vars["table"]
 
+	if h.reader != nil && connID != "" {
+		conn, err := h.reader.GetConnectionByID(connID)
+		if err == nil && conn != nil && conn.IsReadOnly {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			responder.Error(w, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, "Connection is configured as read-only: mutating operations are prohibited", map[string]string{"Allow": "GET, HEAD, OPTIONS"})
+			return
+		}
+	}
+
 	if !identifierRegex.MatchString(tableName) {
 		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid table name")
 		return
@@ -586,6 +595,15 @@ func (h *InstantCRUDHandler) UpdateRow(w http.ResponseWriter, r *http.Request) {
 	tableName := vars["table"]
 	id := vars["id"]
 
+	if h.reader != nil && connID != "" {
+		conn, err := h.reader.GetConnectionByID(connID)
+		if err == nil && conn != nil && conn.IsReadOnly {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			responder.Error(w, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, "Connection is configured as read-only: mutating operations are prohibited", map[string]string{"Allow": "GET, HEAD, OPTIONS"})
+			return
+		}
+	}
+
 	if !identifierRegex.MatchString(tableName) {
 		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid table name")
 		return
@@ -647,6 +665,10 @@ func (h *InstantCRUDHandler) UpdateRow(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 	if err != nil {
+		if dbType == "trino" {
+			responder.Error(w, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, err.Error())
+			return
+		}
 		responder.Error(w, r, http.StatusInternalServerError, responder.ErrCodeInternalError, fmt.Sprintf("Update failed: %v", err))
 		return
 	}
@@ -676,6 +698,15 @@ func (h *InstantCRUDHandler) DeleteRow(w http.ResponseWriter, r *http.Request) {
 	connID := vars["connId"]
 	tableName := vars["table"]
 	id := vars["id"]
+
+	if h.reader != nil && connID != "" {
+		conn, err := h.reader.GetConnectionByID(connID)
+		if err == nil && conn != nil && conn.IsReadOnly {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			responder.Error(w, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, "Connection is configured as read-only: mutating operations are prohibited", map[string]string{"Allow": "GET, HEAD, OPTIONS"})
+			return
+		}
+	}
 
 	if !identifierRegex.MatchString(tableName) {
 		responder.Error(w, r, http.StatusBadRequest, responder.ErrCodeBadRequest, "Invalid table name")
@@ -787,6 +818,17 @@ func quoteIdentifier(dbType, ident string) string {
 
 // ExecuteTableCRUD dispatches a request directly to the table CRUD handlers for a given connection
 func (h *InstantCRUDHandler) ExecuteTableCRUD(w http.ResponseWriter, r *http.Request, connID, tableName, id string) {
+	if h.reader != nil && connID != "" {
+		conn, err := h.reader.GetConnectionByID(connID)
+		if err == nil && conn != nil && conn.IsReadOnly {
+			if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete {
+				w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+				responder.Error(w, r, http.StatusMethodNotAllowed, responder.ErrCodeMethodNotAllowed, "Connection is configured as read-only: mutating operations are prohibited", map[string]string{"Allow": "GET, HEAD, OPTIONS"})
+				return
+			}
+		}
+	}
+
 	vars := map[string]string{
 		"connId": connID,
 		"table":  tableName,

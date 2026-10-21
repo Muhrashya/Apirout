@@ -34,6 +34,14 @@ func (s *RedisSubscriber) SetOnTargetHealthChanged(fn func(targetID, action stri
 	s.onTargetHealthChanged = fn
 }
 
+// Client returns the underlying Redis client if configured
+func (s *RedisSubscriber) Client() *redis.Client {
+	if s == nil {
+		return nil
+	}
+	return s.client
+}
+
 // NewRedisSubscriber creates a new Redis subscriber instance
 func NewRedisSubscriber(redisURL, redisHost, redisPort, redisPassword string,
 	epCache *EndpointCache, connPool *ManagedConnectionPool, countCache *CountCache,

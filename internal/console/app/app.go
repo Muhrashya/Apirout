@@ -51,6 +51,21 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	logger.Info("Control Plane registry ready", "db_type", reg.DBType())
 	httputil.SetTrustedProxies(cfg.TrustedProxies)
 
+	// Headless Cloud Auto-Bootstrap: Provision root Super Admin if zero admins exist and bootstrap credentials provided
+	if cfg.BootstrapAdminEmail != "" && cfg.BootstrapAdminPassword != "" {
+		hasAdmin, err := reg.HasSuperAdmin()
+		if err != nil {
+			logger.Error("Failed to check super admin status during bootstrap", "error", err)
+		} else if !hasAdmin {
+			_, err := reg.CreateSuperAdmin(cfg.BootstrapAdminEmail, cfg.BootstrapAdminPassword)
+			if err != nil {
+				logger.Error("Failed to auto-bootstrap super admin", "email", cfg.BootstrapAdminEmail, "error", err)
+			} else {
+				logger.Info("Headless cloud auto-bootstrap complete: root Super Admin created", "email", cfg.BootstrapAdminEmail)
+			}
+		}
+	}
+
 	// Redis Publisher
 	pub := publisher.NewRedisPublisher(cfg.RedisURL, cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword, logger)
 	reg.SetPublisher(pub)

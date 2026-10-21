@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/apirout/apirout/internal/core/models"
+	"github.com/apirout/apirout/internal/gateway/pipeline"
 )
 
 func TestExtractTableAndID(t *testing.T) {
@@ -152,5 +155,52 @@ func TestIsOriginAllowed(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("isOriginAllowed(%q, %q) = %v, want %v", tt.origin, tt.allowedOrigins, got, tt.want)
 		}
+	}
+}
+
+func TestStageAuth_RateLimiterAnonymousIPIsolation(t *testing.T) {
+	h := &Handler{
+		rateLimiter: newTokenBucketLimiter(),
+	}
+	stage := newAuthStage(h)
+
+	endpoint := &models.Endpoint{
+		ID:               "ep-test-1",
+		RateLimitEnabled: true,
+		RateLimitRPM:     60,
+		RateLimitBurst:   1, // Only 1 allowed immediately
+	}
+
+	// 1. First anonymous request from IP 192.168.1.10
+	req1 := httptest.NewRequest("GET", "/api/v1/test", nil)
+	rec1 := httptest.NewRecorder()
+	ctx1 := pipeline.NewContext(rec1, req1)
+	ctx1.ClientIP = "192.168.1.10"
+	ctx1.Endpoint = endpoint
+	_ = stage.Execute(ctx1)
+	if ctx1.StatusCode == http.StatusTooManyRequests {
+		t.Fatalf("first request from IP1 should be allowed, got 429")
+	}
+
+	// 2. Second immediate request from IP 192.168.1.10 should exceed burst=1
+	req2 := httptest.NewRequest("GET", "/api/v1/test", nil)
+	rec2 := httptest.NewRecorder()
+	ctx2 := pipeline.NewContext(rec2, req2)
+	ctx2.ClientIP = "192.168.1.10"
+	ctx2.Endpoint = endpoint
+	_ = stage.Execute(ctx2)
+	if ctx2.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("second immediate request from IP1 should be rate-limited, got status %d", ctx2.StatusCode)
+	}
+
+	// 3. First request from different IP 192.168.1.20 should be ALLOWED (independent bucket)
+	req3 := httptest.NewRequest("GET", "/api/v1/test", nil)
+	rec3 := httptest.NewRecorder()
+	ctx3 := pipeline.NewContext(rec3, req3)
+	ctx3.ClientIP = "192.168.1.20"
+	ctx3.Endpoint = endpoint
+	_ = stage.Execute(ctx3)
+	if ctx3.StatusCode == http.StatusTooManyRequests {
+		t.Fatalf("request from distinct IP2 should have its own token bucket and be allowed, got 429")
 	}
 }

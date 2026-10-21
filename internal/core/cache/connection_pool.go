@@ -72,6 +72,8 @@ func (p *ManagedConnectionPool) Get(connectionID, dbType, dsn string) (*sql.DB, 
 		driverName = "mysql"
 	case "mssql", "sqlserver":
 		driverName = "sqlserver"
+	case "trino":
+		driverName = "trino"
 	default:
 		return nil, fmt.Errorf("unsupported database driver: %s", dbType)
 	}

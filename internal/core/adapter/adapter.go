@@ -32,6 +32,8 @@ func GetAdapter(dbType string) (DatabaseAdapter, error) {
 		return NewMySQLAdapter(), nil
 	case "mssql", "sqlserver":
 		return NewMSSQLAdapter(), nil
+	case "trino":
+		return NewTrinoAdapter(), nil
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", dbType)
 	}
@@ -39,7 +41,7 @@ func GetAdapter(dbType string) (DatabaseAdapter, error) {
 
 // SupportedDBTypes returns the list of database types supported by the unified adapter seam
 func SupportedDBTypes() []string {
-	return []string{"postgres", "mysql", "mssql"}
+	return []string{"postgres", "mysql", "mssql", "trino"}
 }
 
 // --- PostgresAdapter ---
@@ -168,5 +170,48 @@ func (a *MSSQLAdapter) QuoteIdentifier(ident string) string {
 }
 
 func (a *MSSQLAdapter) Open(connString string) (*sql.DB, error) {
+	return sql.Open(a.DriverName(), connString)
+}
+
+// --- TrinoAdapter ---
+
+type TrinoAdapter struct {
+	connector *targets.TrinoConnector
+	generator *sqldialect.TrinoGenerator
+}
+
+// NewTrinoAdapter creates a new Trino database adapter
+func NewTrinoAdapter() *TrinoAdapter {
+	return &TrinoAdapter{
+		connector: targets.NewTrinoConnector(),
+		generator: sqldialect.NewTrinoGenerator(),
+	}
+}
+
+func (a *TrinoAdapter) DBType() string {
+	return "trino"
+}
+
+func (a *TrinoAdapter) DriverName() string {
+	return "trino"
+}
+
+func (a *TrinoAdapter) BuildConnectionString(host string, port int, dbname, username, password, sslmode string) string {
+	return a.connector.BuildConnectionString(host, port, dbname, username, password, sslmode)
+}
+
+func (a *TrinoAdapter) Introspect(ctx context.Context, connString string) (*introspection.SchemaInfo, error) {
+	return introspection.Introspect(ctx, "trino", connString)
+}
+
+func (a *TrinoAdapter) GetQueryGenerator() sqldialect.Generator {
+	return a.generator
+}
+
+func (a *TrinoAdapter) QuoteIdentifier(ident string) string {
+	return a.generator.QuoteIdentifier(ident)
+}
+
+func (a *TrinoAdapter) Open(connString string) (*sql.DB, error) {
 	return sql.Open(a.DriverName(), connString)
 }

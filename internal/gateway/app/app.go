@@ -83,6 +83,13 @@ func NewWithReader(cfg *config.Config, logger *slog.Logger, reader *registry.Rea
 	instantHandler := executor.NewInstantCRUDHandler(reader, cfg.EncryptionKey, connPool, apiClientAuthService, cfg.AdminSecret, cfg.GatewayJWTSecret)
 	executorHandler := executor.NewHandler(executorService, reader, apiClientAuthService, authEngine, outboundInjector, instantHandler)
 
+	// Wire Distributed Rate Limiter if enabled
+	if cfg.DistributedRateLimit {
+		hybridLimiter := executor.NewHybridRateLimiter(executorHandler.GetRateLimiter(), app.redisSub.Client(), true, logger)
+		executorHandler.SetRateLimiter(hybridLimiter)
+		logger.Info("Distributed Redis rate limiting enabled with local memory fallback", "redis_connected", app.redisSub.Client() != nil)
+	}
+
 	// Wire zero-downtime atomic pointer swapping on EventBus route invalidation
 	app.redisSub.SetOnRouteInvalidated(func() {
 		if err := executorHandler.ReloadRouterFromDB(); err != nil {

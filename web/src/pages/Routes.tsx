@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { gatewayApi, Route, GatewayService } from '../api/gatewayApi';
+import { gatewayApi, getGatewayBaseUrl, Route, GatewayService } from '../api/gatewayApi';
 import { apiClient } from '../api/apiClient';
 import { useToast } from '../components/Toast';
 import { Modal } from '../components/Modal';
@@ -570,7 +570,7 @@ export default function RoutesPage() {
                         <div>
                             <span style={{ color: '#64748b', display: 'block', fontSize: '12px' }}>Full Gateway URL</span>
                             <code style={{ backgroundColor: '#f1f5f9', padding: '6px 10px', borderRadius: '6px', display: 'block', marginTop: '4px', fontSize: '13px', fontWeight: 600 }}>
-                                http://localhost:8000{viewDetails.path}
+                                {getGatewayBaseUrl()}{viewDetails.path}
                             </code>
                         </div>
 
@@ -653,7 +653,7 @@ export default function RoutesPage() {
                                 : '';
                             const hostHeader = rawDomain && !rawDomain.startsWith('*') ? `-H "Host: ${rawDomain}" ` : '';
                             const authHeader = !viewDetails.is_public ? '-H "X-API-Key: YOUR_CONSUMER_KEY" ' : '';
-                            const curlCommand = `curl -X ${viewDetails.method} ${hostHeader}${authHeader}"http://localhost:8000${viewDetails.path}"`;
+                            const curlCommand = `curl -X ${viewDetails.method} ${hostHeader}${authHeader}"${getGatewayBaseUrl()}${viewDetails.path}"`;
 
                             return (
                                 <div style={{ marginTop: '6px' }}>

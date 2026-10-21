@@ -62,6 +62,8 @@ func GetConnector(dbType string) (Connector, error) {
 		return NewMongoDBConnector(), nil
 	case "redis":
 		return NewRedisConnector(), nil
+	case "trino":
+		return NewTrinoConnector(), nil
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", dbType)
 	}
@@ -85,6 +87,9 @@ func BuildConnectionString(dbType, host string, port int, dbname, username, pass
 	case "redis":
 		conn := NewRedisConnector()
 		return conn.BuildConnectionString(host, port, dbname, username, password, sslmode == "require" || sslmode == "true"), nil
+	case "trino":
+		conn := NewTrinoConnector()
+		return conn.BuildConnectionString(host, port, dbname, username, password, sslmode), nil
 	default:
 		return "", fmt.Errorf("unsupported database type: %s", dbType)
 	}

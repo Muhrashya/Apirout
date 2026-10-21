@@ -1,5 +1,20 @@
 import { apiClient } from './apiClient';
 
+/**
+ * Resolves the active Gateway data plane base URL dynamically.
+ * Honors VITE_GATEWAY_URL if configured; otherwise defaults dynamically to current protocol & host on port 8000.
+ */
+export function getGatewayBaseUrl(): string {
+    const envUrl = (import.meta as any).env?.VITE_GATEWAY_URL;
+    if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+        return envUrl.replace(/\/+$/, '');
+    }
+    if (typeof window !== 'undefined' && window.location) {
+        return `${window.location.protocol}//${window.location.hostname}:8000`;
+    }
+    return 'http://localhost:8000';
+}
+
 export interface GatewayService {
     id: string;
     name: string;

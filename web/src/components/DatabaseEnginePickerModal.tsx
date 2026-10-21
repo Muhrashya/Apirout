@@ -5,6 +5,7 @@ import logoMongodb from '../assets/logos/logo-mongodb.png';
 import logoMysql from '../assets/logos/logo-mysql.png';
 import logoPostgresql from '../assets/logos/logo-postgresql.png';
 import logoSqlserver from '../assets/logos/logo-sqlserver.png';
+import logoTrino from '../assets/logos/logo-trino.png';
 
 const IconClose = () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -61,6 +62,15 @@ export const DATABASE_ENGINES: DatabaseEngineOption[] = [
         port: 1433,
         description: 'Microsoft enterprise database engine with robust T-SQL, transaction control, and pooling.',
         icon: <img src={logoSqlserver} alt="SQL Server" style={{ width: '38px', height: '38px', objectFit: 'contain' }} />
+    },
+    {
+        id: 'trino',
+        name: 'Trino',
+        category: 'sql',
+        categoryLabel: 'Distributed SQL',
+        port: 8080,
+        description: 'Fast distributed SQL query engine for big data analytics, data lakes, and federated catalogs.',
+        icon: <img src={logoTrino} alt="Trino" style={{ width: '38px', height: '38px', objectFit: 'contain' }} />
     }
 ];
 

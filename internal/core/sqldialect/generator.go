@@ -27,6 +27,8 @@ func GetGenerator(dialect string) (Generator, error) {
 		return NewMySQLGenerator(), nil
 	case "mssql", "sqlserver":
 		return NewMSSQLGenerator(), nil
+	case "trino":
+		return NewTrinoGenerator(), nil
 	default:
 		return nil, fmt.Errorf("unsupported sql dialect: %s", dialect)
 	}

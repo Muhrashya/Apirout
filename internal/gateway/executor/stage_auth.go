@@ -57,14 +57,16 @@ func (s *authStage) Execute(c *pipeline.Context) error {
 			}
 		}
 
-		c.ConsumerID = &consumerID
+		if consumerID != "" {
+			c.ConsumerID = &consumerID
+		}
 		c.GroupID = groupID
 	}
 
 	// Rate Limiting Check
 	if endpoint.RateLimitEnabled && endpoint.RateLimitRPM > 0 {
 		rateKey := fmt.Sprintf("route:%s:ip:%s", endpoint.ID, c.ClientIP)
-		if c.ConsumerID != nil {
+		if c.ConsumerID != nil && *c.ConsumerID != "" {
 			rateKey = fmt.Sprintf("route:%s:client:%s", endpoint.ID, *c.ConsumerID)
 		}
 		if !s.handler.rateLimiter.Allow(rateKey, endpoint.RateLimitRPM, endpoint.RateLimitBurst) {
@@ -77,7 +79,7 @@ func (s *authStage) Execute(c *pipeline.Context) error {
 	// Consumer Group Rate Limiting Check
 	if c.GroupID != "" && s.handler.reader != nil {
 		group, err := s.handler.reader.GetConsumerGroupByID(c.GroupID)
-		if err == nil && group != nil && group.RateLimitRPM > 0 && c.ConsumerID != nil {
+		if err == nil && group != nil && group.RateLimitRPM > 0 && c.ConsumerID != nil && *c.ConsumerID != "" {
 			groupKey := fmt.Sprintf("group:%s:client:%s", c.GroupID, *c.ConsumerID)
 			if !s.handler.rateLimiter.Allow(groupKey, group.RateLimitRPM, group.RateLimitBurst) {
 				c.SetError(http.StatusTooManyRequests, "Consumer group rate limit exceeded")
